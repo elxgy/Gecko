@@ -458,47 +458,51 @@ func (e *Editor) navigateMatches(prev bool) {
 	e.searchBar.SetLabel(fmt.Sprintf("Search (%d/%d): ", e.currentMatch+1, len(e.searchMatches)))
 }
 
-func (e *Editor) absoluteToRowCol(absPos int) (int, int) {
-	text := e.textArea.GetText()
-	if absPos > len(text) {
-		absPos = len(text)
-	}
+//More unused things
 
-	row := 0
-	col := 0
+// func (e *Editor) absoluteToRowCol(absPos int) (int, int) {
+// 	text := e.textArea.GetText()
+// 	if absPos > len(text) {
+// 		absPos = len(text)
+// 	}
 
-	for i := 0; i < absPos && i < len(text); i++ {
-		if text[i] == '\n' {
-			row++
-			col = 0
-		} else {
-			col++
-		}
-	}
+// 	row := 0
+// 	col := 0
 
-	return row, col
-}
+// 	for i := 0; i < absPos && i < len(text); i++ {
+// 		if text[i] == '\n' {
+// 			row++
+// 			col = 0
+// 		} else {
+// 			col++
+// 		}
+// 	}
 
-func (e *Editor) calculateAbsolutePosition(row, col int) int {
-	text := e.textArea.GetText()
-	pos := 0
-	currentRow := 0
+// 	return row, col
+// }
 
-	for i, char := range text {
-		if currentRow == row {
-			if col <= 0 {
-				return i
-			}
-			col--
-		}
-		if char == '\n' {
-			currentRow++
-		}
-		pos = i + 1
-	}
+//Again, unused
 
-	return pos
-}
+// func (e *Editor) calculateAbsolutePosition(row, col int) int {
+// 	text := e.textArea.GetText()
+// 	pos := 0
+// 	currentRow := 0
+
+// 	for i, char := range text {
+// 		if currentRow == row {
+// 			if col <= 0 {
+// 				return i
+// 			}
+// 			col--
+// 		}
+// 		if char == '\n' {
+// 			currentRow++
+// 		}
+// 		pos = i + 1
+// 	}
+
+// 	return pos
+// }
 
 func (e *Editor) setHighlights(matchIndex int) {
 	if matchIndex < 0 || matchIndex >= len(e.searchMatches) {
@@ -624,9 +628,12 @@ func (e *Editor) showOpenDialog() {
 	e.showMessage("Open dialog - TODO: Implement file browser")
 }
 
-func (e *Editor) showFindDialog() {
-	e.startSearch()
-}
+
+//More unused things
+
+// func (e *Editor) showFindDialog() {
+// 	e.startSearch()
+// }
 
 func (e *Editor) showQuitDialog() {
 	modal := tview.NewModal().
