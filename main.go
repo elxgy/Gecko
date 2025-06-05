@@ -2,558 +2,402 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
-type SearchMatch struct {
-	StartPos int
-	EndPos   int
-	Line     int
-	Col      int
-	LineText string
+var (
+	statusBarStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#6f7cbf")).
+			Foreground(lipgloss.Color("230")).
+			Padding(0, 1)
+
+	// New style for minibuffer
+	minibufferStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#44475a")).
+			Foreground(lipgloss.Color("#f8f8f2")).
+			Padding(0, 1)
+
+	minibufferPromptStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#89b4fa")).
+			Bold(true)
+
+	minibufferInputStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#f8f8f2"))
+
+	minibufferCursorStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#f8f8f2")).
+			Foreground(lipgloss.Color("#282a36"))
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241"))
+
+	modifiedStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#6f7cbf")).
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+
+	editorStyle = lipgloss.NewStyle().
+			Border(lipgloss.ThickBorder()).
+			BorderForeground(lipgloss.Color("#6f7cbf")).
+			Padding(0, 1)
+
+	lineNumberStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Width(4).
+			Align(lipgloss.Right)
+
+	selectedTextStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#44475a")).
+				Foreground(lipgloss.Color("#f8f8f2"))
+
+	cursorLineStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#282a36"))
+
+	helpBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#6f7cbf")).
+			AlignHorizontal(lipgloss.Center).
+			Padding(1, 2).
+			Margin(1, 0)
+
+	helpTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6f7cbf")).
+			Bold(true).
+			Underline(true)
+
+	helpKeyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#89b4fa")).
+			Bold(true)
+
+	helpDescStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cdd6f4"))
+)
+
+type MinibufferType int
+
+const (
+	MinibufferNone MinibufferType = iota
+	MinibufferGoToLine
+	MinibufferFind
+)
+
+type Model struct {
+	textBuffer     *TextBuffer
+	filename       string
+	modified       bool
+	originalText   string
+	width          int
+	height         int
+	showHelp       bool
+	lastSaved      time.Time
+	message        string
+	messageTime    time.Time
+	clipboard      string
+	scrollOffset   int
+	minibufferType MinibufferType
+	minibufferInput string
+	minibufferCursorPos int
+	findResults    []Position
+	findIndex      int
+	lastSearchQuery string
 }
 
-type Editor struct {
-	app           *tview.Application
-	textArea      *tview.TextArea
-	statusBar     *tview.TextView
-	mainLayout    *tview.Flex
-	searchLayout  *tview.Flex
-	rootLayout    *tview.Flex
-	filename      string
-	modified      bool
-	lastLine      int
-	lastCol       int
-	searchBar     *tview.InputField
-	searchResults *tview.List
-	searchMatches []SearchMatch
-	currentMatch  int
-	searchActive  bool
-	savedCursor   struct {
-		row, col int
+func NewModel(filename string) Model {
+	var content string
+	var originalText string
+
+	if filename != "" {
+		if data, err := os.ReadFile(filename); err == nil {
+			content = string(data)
+			originalText = content
+		}
+	}
+
+	textBuffer := NewTextBuffer(content)
+
+	return Model{
+		textBuffer:   textBuffer,
+		filename:     filename,
+		originalText: originalText,
+		modified:     false,
+		findResults:  []Position{},
+		findIndex:    -1,
 	}
 }
 
-func NewEditor() *Editor {
-	app := tview.NewApplication()
-
-	textArea := tview.NewTextArea().
-		SetPlaceholder("Start typing... Press Ctrl+G for help").
-		SetWrap(false)
-
-	statusBar := tview.NewTextView().
-		SetDynamicColors(true).
-		SetText("[white]No file | Press Ctrl+G for help")
-
-	searchBar := tview.NewInputField().
-		SetLabel("Search: ").
-		SetFieldBackgroundColor(tcell.ColorBlack)
-
-	searchResults := tview.NewList()
-	searchResults.SetTitle(" Search Results ").
-		SetBorder(true).
-		SetTitleAlign(tview.AlignLeft)
-
-	mainLayout := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(textArea, 0, 1, true).
-		AddItem(statusBar, 1, 0, false)
-
-	searchLayout := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(searchBar, 1, 0, false).
-		AddItem(searchResults, 0, 1, false)
-
-	rootLayout := tview.NewFlex().
-		SetDirection(tview.FlexColumn).
-		AddItem(mainLayout, 0, 2, true).
-		AddItem(searchLayout, 0, 1, false)
-
-	editor := &Editor{
-		app:           app,
-		textArea:      textArea,
-		statusBar:     statusBar,
-		mainLayout:    mainLayout,
-		searchLayout:  searchLayout,
-		rootLayout:    rootLayout,
-		filename:      "",
-		modified:      false,
-		lastLine:      -1,
-		lastCol:       -1,
-		searchBar:     searchBar,
-		searchResults: searchResults,
-	}
-
-	app.SetRoot(rootLayout, true)
-	editor.setupKeyBindings()
-	editor.setupCursorTracking()
-	editor.setupSearchComponents()
-
-	rootLayout.ResizeItem(searchLayout, 0, 0)
-
-	return editor
-}
-
-func (e *Editor) setupKeyBindings() {
-	e.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if e.searchActive {
-			return event
-		}
-		return e.handleKeyPress(event)
-	})
-
-	e.textArea.SetChangedFunc(func() {
-		e.modified = true
-		e.updateStatusBar()
+func (m Model) Init() tea.Cmd {
+	return tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{}}
 	})
 }
 
-func (e *Editor) setupCursorTracking() {
-	e.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
-		line, col, _, _ := e.textArea.GetCursor()
+func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.minibufferType = MinibufferNone
+		m.minibufferInput = ""
+		m.minibufferCursorPos = 0
 
-		if line != e.lastLine || col != e.lastCol {
-			e.lastLine = line
-			e.lastCol = col
-			e.updateStatusBar()
-		}
-		return false
-	})
-}
-
-func (e *Editor) setupSearchComponents() {
-	e.setupSearchBar()
-	e.setupSearchResults()
-}
-
-func (e *Editor) setupSearchBar() {
-	e.searchBar.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEsc:
-			e.cancelSearch()
-			return nil
-		case tcell.KeyEnter:
-			e.acceptSearch()
-			return nil
-		case tcell.KeyUp:
-			e.navigateMatches(true)
-			return nil
-		case tcell.KeyDown:
-			e.navigateMatches(false)
-			return nil
-		case tcell.KeyCtrlG:
-			e.cancelSearch()
-			return nil
-		case tcell.KeyTab:
-			e.app.SetFocus(e.searchResults)
-			return nil
-		}
-		return event
-	})
-
-	e.searchBar.SetChangedFunc(func(query string) {
-		e.updateSearch(query)
-	})
-}
-
-func (e *Editor) setupSearchResults() {
-	e.searchResults.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEsc:
-			e.cancelSearch()
-			return nil
-		case tcell.KeyEnter:
-			currentItem := e.searchResults.GetCurrentItem()
-			if currentItem >= 0 && currentItem < len(e.searchMatches) {
-				e.jumpToMatch(currentItem)
-				e.acceptSearch()
-			}
-			return nil
-		case tcell.KeyTab:
-			e.app.SetFocus(e.searchBar)
-			return nil
-		case tcell.KeyUp, tcell.KeyDown:
-			return event
-		}
-		return event
-	})
-
-	e.searchResults.SetChangedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
-		if index >= 0 && index < len(e.searchMatches) {
-			e.previewMatch(index)
-		}
-	})
-
-	e.searchResults.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
-		if index >= 0 && index < len(e.searchMatches) {
-			e.jumpToMatch(index)
-			e.acceptSearch()
-		}
-	})
-}
-
-func (e *Editor) startSearch() {
-	e.savedCursor.row, e.savedCursor.col, _, _ = e.textArea.GetCursor()
-
-	e.rootLayout.ResizeItem(e.searchLayout, 40, 0)
-
-	e.searchBar.SetText("")
-	e.app.SetFocus(e.searchBar)
-	e.searchActive = true
-	e.searchMatches = nil
-	e.currentMatch = -1
-	e.searchResults.Clear()
-
-}
-
-func (e *Editor) cancelSearch() {
-	e.rootLayout.ResizeItem(e.searchLayout, 0, 0)
-
-	e.app.SetFocus(e.textArea)
-	e.searchActive = false
-	e.clearHighlights()
-
-	currentLine, _, _, _ := e.textArea.GetCursor()
-	if abs(currentLine-e.savedCursor.row) > 5 {
-		e.textArea.SetOffset(e.savedCursor.row, e.savedCursor.col)
-	}
-
-	e.searchResults.Clear()
-}
-
-func (e *Editor) acceptSearch() {
-	e.rootLayout.ResizeItem(e.searchLayout, 0, 0)
-
-	e.app.SetFocus(e.textArea)
-	e.searchActive = false
-}
-
-func (e *Editor) updateSearch(query string) {
-	if query == "" {
-		e.clearHighlights()
-		e.searchMatches = nil
-		e.currentMatch = -1
-		e.searchBar.SetLabel("Search: ")
-		e.searchResults.Clear()
-		return
-	}
-
-	fullText := e.textArea.GetText()
-	e.searchMatches = e.findAllMatches(fullText, query)
-
-	if len(e.searchMatches) == 0 {
-		e.searchBar.SetLabel("Search (0 matches): ")
-		e.clearHighlights()
-		e.currentMatch = -1
-		e.searchResults.Clear()
-		return
-	}
-
-	e.updateSearchResultsList(query)
-
-	currentLine, _, _, _ := e.textArea.GetCursor()
-	closestMatch := e.findClosestMatch(currentLine)
-
-	e.currentMatch = closestMatch
-	e.searchResults.SetCurrentItem(closestMatch)
-
-	e.setHighlightsOnly(closestMatch)
-
-	e.searchBar.SetLabel(fmt.Sprintf("Search (%d matches): ", len(e.searchMatches)))
-}
-
-func (e *Editor) findAllMatches(text, pattern string) []SearchMatch {
-	var matches []SearchMatch
-	lines := strings.Split(text, "\n")
-	start := 0
-	patternLen := len(pattern)
-
-	if patternLen == 0 {
-		return matches
-	}
-
-	for lineNum, line := range lines {
-		lineStart := start
-		for {
-			pos := strings.Index(text[start:], pattern)
-			if pos == -1 {
-				break
+	case tea.KeyEnter:
+		switch m.minibufferType {
+		case MinibufferGoToLine:
+			if line, err := strconv.Atoi(m.minibufferInput); err == nil {
+				m.textBuffer.GoToLine(line - 1)
+				m.ensureCursorVisible()
+			} else {
+				m.setMessage("Invalid line number")
 			}
 
-			absStart := start + pos
-			absEnd := absStart + patternLen
-
-			if absStart >= lineStart && absStart < lineStart+len(line)+1 {
-				col := absStart - lineStart
-
-				contextStart := 0
-				contextEnd := len(line)
-				if contextEnd > 80 {
-					contextStart = max(0, col-20)
-					contextEnd = min(len(line), col+60)
+		case MinibufferFind:
+			if m.minibufferInput != "" {
+				m.lastSearchQuery = m.minibufferInput  // Store the search query
+				m.findResults = m.textBuffer.FindText(m.minibufferInput, false)
+				if len(m.findResults) > 0 {
+					m.findIndex = 0
+					m.textBuffer.SetCursor(m.findResults[0])
+					
+					endPos := Position{
+						Line:   m.findResults[0].Line,
+						Column: m.findResults[0].Column + len(m.minibufferInput),
+					}
+					m.textBuffer.SetSelection(&Selection{
+						Start: m.findResults[0],
+						End:   endPos,
+					})
+					
+					m.ensureCursorVisible()
+					m.setSearchMessage()
+				} else {
+					m.setMessage("No matches found")
 				}
-
-				lineText := line[contextStart:contextEnd]
-				if contextStart > 0 {
-					lineText = "..." + lineText
-				}
-				if contextEnd < len(line) {
-					lineText = lineText + "..."
-				}
-
-				matches = append(matches, SearchMatch{
-					StartPos: absStart,
-					EndPos:   absEnd,
-					Line:     lineNum + 1,
-					Col:      col + 1,
-					LineText: lineText,
-				})
 			}
-
-			start = absStart + 1
 		}
 
-		start = lineStart + len(line) + 1
+		m.minibufferType = MinibufferNone
+		m.minibufferInput = ""
+		m.minibufferCursorPos = 0
+
+	case tea.KeyBackspace:
+		if m.minibufferCursorPos > 0 {
+			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos-1] + m.minibufferInput[m.minibufferCursorPos:]
+			m.minibufferCursorPos--
+		}
+
+	case tea.KeyDelete:
+		if m.minibufferCursorPos < len(m.minibufferInput) {
+			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + m.minibufferInput[m.minibufferCursorPos+1:]
+		}
+
+	case tea.KeyLeft:
+		if m.minibufferCursorPos > 0 {
+			m.minibufferCursorPos--
+		}
+
+	case tea.KeyRight:
+		if m.minibufferCursorPos < len(m.minibufferInput) {
+			m.minibufferCursorPos++
+		}
+
+	case tea.KeyHome:
+		m.minibufferCursorPos = 0
+
+	case tea.KeyEnd:
+		m.minibufferCursorPos = len(m.minibufferInput)
+
+	case tea.KeyRunes:
+		if len(msg.Runes) > 0 {
+			char := string(msg.Runes)
+			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + char + m.minibufferInput[m.minibufferCursorPos:]
+			m.minibufferCursorPos++
+		}
 	}
-	return matches
+
+	return m, nil
 }
 
-func (e *Editor) updateSearchResultsList(query string) {
-	e.searchResults.Clear()
-
-	for _, match := range e.searchMatches {
-		mainText := fmt.Sprintf("Line %d:%d", match.Line, match.Col)
-		secondaryText := match.LineText
-		e.searchResults.AddItem(mainText, secondaryText, 0, nil)
-	}
-}
-
-func (e *Editor) previewMatch(index int) {
-	if index < 0 || index >= len(e.searchMatches) {
-		return
-	}
-
-	match := e.searchMatches[index]
-	currentLine, _, _, _ := e.textArea.GetCursor()
-
-	distance := abs(match.Line - 1 - currentLine)
-
-	if distance > 20 {
-		e.smartScrollToLine(match.Line - 1)
-	}
-
-	e.setHighlights(index)
-	e.currentMatch = index
-}
-
-//Dont uncomment!!!!!, its shit but may be useful'
-
-// func (e *Editor) gentleScrollToLine(line int) {
-// 	text := e.textArea.GetText()
-// 	lines := strings.Split(text, "\n")
-// 	totalLines := len(lines)
-
-// 	if line < 0 {
-// 		line = 0
-// 	}
-// 	if line >= totalLines {
-// 		line = totalLines - 1
-// 	}
-
-// 	currentLine, currentCol, _, _ := e.textArea.GetCursor()
-
-// 	if abs(currentLine-line) > 10 {
-// 		preservedCol := currentCol
-// 		if preservedCol > len(lines[line]) {
-// 			preservedCol = len(lines[line])
-// 		}
-
-// 		e.textArea.SetOffset(line, preservedCol)
-// 	}
-// }
-
-func (e *Editor) jumpToMatch(index int) {
-	if index < 0 || index >= len(e.searchMatches) {
-		return
-	}
-
-	match := e.searchMatches[index]
-
-	e.smartScrollToLine(match.Line - 1)
-
-	e.textArea.SetOffset(match.Line-1, match.Col-1)
-	e.textArea.Select(match.StartPos, match.EndPos)
-
-	e.currentMatch = index
-}
-
-func (e *Editor) smartScrollToLine(line int) {
-	text := e.textArea.GetText()
-	lines := strings.Split(text, "\n")
-	totalLines := len(lines)
-
-	if line < 0 {
-		line = 0
-	}
-	if line >= totalLines {
-		line = totalLines - 1
-	}
-
-	_, _, _, height := e.textArea.GetInnerRect()
-	visibleLines := height
-	if visibleLines <= 0 {
-		visibleLines = 20
-	}
-
-	contextOffset := visibleLines / 4
-	scrollTarget := line - contextOffset
-
-	if scrollTarget < 0 {
-		scrollTarget = 0
-	}
-
-	maxScroll := totalLines - visibleLines
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if scrollTarget > maxScroll {
-		scrollTarget = maxScroll
-	}
-
-	e.textArea.SetOffset(scrollTarget, 0)
-
-	go func() {
-		time.Sleep(5 * time.Millisecond)
-		e.app.QueueUpdateDraw(func() {
-			e.textArea.SetOffset(line, 0)
-		})
-	}()
-}
-
-func (e *Editor) navigateMatches(prev bool) {
-	if len(e.searchMatches) == 0 {
-		return
-	}
-
-	if prev {
-		e.currentMatch--
-		if e.currentMatch < 0 {
-			e.currentMatch = len(e.searchMatches) - 1
+func (m Model) handleSave() (tea.Model, tea.Cmd) {
+	if m.filename != "" {
+		err := m.saveFile()
+		if err == nil {
+			m.modified = false
+			m.originalText = m.textBuffer.GetContent()
+			m.lastSaved = time.Now()
+			m.setMessage("File saved successfully")
+		} else {
+			m.setMessage(fmt.Sprintf("Error saving file: %v", err))
 		}
 	} else {
-		e.currentMatch++
-		if e.currentMatch >= len(e.searchMatches) {
-			e.currentMatch = 0
+		m.setMessage("No filename specified")
+	}
+	return m, nil
+}
+
+func (m Model) handleCopy() (tea.Model, tea.Cmd) {
+	if m.textBuffer.HasSelection() {
+		text := m.textBuffer.GetSelectedText()
+		m.clipboard = text
+		if err := copyToClipboard(text); err != nil {
+			m.setMessage("Copied to internal clipboard")
+		} else {
+			m.setMessage("Copied to system clipboard")
 		}
+	} else {
+		m.setMessage("No text selected")
 	}
-
-	e.previewMatch(e.currentMatch)
-	e.searchResults.SetCurrentItem(e.currentMatch)
-	e.searchBar.SetLabel(fmt.Sprintf("Search (%d/%d): ", e.currentMatch+1, len(e.searchMatches)))
+	return m, nil
 }
 
-//More unused things
-
-// func (e *Editor) absoluteToRowCol(absPos int) (int, int) {
-// 	text := e.textArea.GetText()
-// 	if absPos > len(text) {
-// 		absPos = len(text)
-// 	}
-
-// 	row := 0
-// 	col := 0
-
-// 	for i := 0; i < absPos && i < len(text); i++ {
-// 		if text[i] == '\n' {
-// 			row++
-// 			col = 0
-// 		} else {
-// 			col++
-// 		}
-// 	}
-
-// 	return row, col
-// }
-
-//Again, unused
-
-// func (e *Editor) calculateAbsolutePosition(row, col int) int {
-// 	text := e.textArea.GetText()
-// 	pos := 0
-// 	currentRow := 0
-
-// 	for i, char := range text {
-// 		if currentRow == row {
-// 			if col <= 0 {
-// 				return i
-// 			}
-// 			col--
-// 		}
-// 		if char == '\n' {
-// 			currentRow++
-// 		}
-// 		pos = i + 1
-// 	}
-
-// 	return pos
-// }
-
-func (e *Editor) setHighlights(matchIndex int) {
-	if matchIndex < 0 || matchIndex >= len(e.searchMatches) {
-		return
-	}
-
-	match := e.searchMatches[matchIndex]
-	e.textArea.Select(match.StartPos, match.EndPos)
-}
-
-func (e *Editor) clearHighlights() {
-	e.textArea.Select(-1, -1)
-}
-
-func (e *Editor) findClosestMatch(currentLine int) int {
-	if len(e.searchMatches) == 0 {
-		return -1
-	}
-
-	closestIndex := 0
-	minDistance := abs(e.searchMatches[0].Line - 1 - currentLine)
-
-	for i, match := range e.searchMatches {
-		distance := abs(match.Line - 1 - currentLine)
-		if distance < minDistance {
-			minDistance = distance
-			closestIndex = i
+func (m Model) handleCut() (tea.Model, tea.Cmd) {
+	if m.textBuffer.HasSelection() {
+		text := m.textBuffer.GetSelectedText()
+		m.clipboard = text
+		m.textBuffer.DeleteSelection()
+		m.updateModified()
+		if err := copyToClipboard(text); err != nil {
+			m.setMessage("Cut to internal clipboard")
+		} else {
+			m.setMessage("Cut to system clipboard")
 		}
+	} else {
+		m.setMessage("No text selected")
 	}
-
-	return closestIndex
+	return m, nil
 }
 
-func (e *Editor) setHighlightsOnly(matchIndex int) {
-	if matchIndex < 0 || matchIndex >= len(e.searchMatches) {
-		return
+func (m Model) handlePaste() (tea.Model, tea.Cmd) {
+	if text, err := pasteFromClipboard(); err == nil && text != "" {
+		m.textBuffer.InsertText(text)
+		m.updateModified()
+		m.setMessage("Pasted from system clipboard")
+	} else if m.clipboard != "" {
+		m.textBuffer.InsertText(m.clipboard)
+		m.updateModified()
+		m.setMessage("Pasted from internal clipboard")
+	} else {
+		m.setMessage("Nothing to paste")
 	}
-
-	match := e.searchMatches[matchIndex]
-	currentLine, _, _, _ := e.textArea.GetCursor()
-
-	if abs(match.Line-1-currentLine) <= 50 {
-		e.textArea.Select(match.StartPos, match.EndPos)
-	}
+	return m, nil
 }
 
-func abs(x int) int {
-	if x < 0 {
-		return -x
+func (m Model) handleUndo() (tea.Model, tea.Cmd) {
+	if m.textBuffer.Undo() {
+		m.updateModified()
+		m.ensureCursorVisible()
+	} else {
+		m.setMessage("Nothing to undo")
 	}
-	return x
+	return m, nil
+}
+
+func (m Model) handleRedo() (tea.Model, tea.Cmd) {
+	if m.textBuffer.Redo() {
+		m.updateModified()
+		m.ensureCursorVisible()
+	} else {
+		m.setMessage("Nothing to redo")
+	}
+	return m, nil
+}
+
+func (m Model) handleSelectAll() (tea.Model, tea.Cmd) {
+	m.textBuffer.SelectAll()
+	return m, nil
+}
+
+func (m Model) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
+
+	return m.renderEditor()
+}
+func (m Model) handleFindNext() (tea.Model, tea.Cmd) {
+	if len(m.findResults) == 0 {
+		m.setMessage("No search results available")
+		return m, nil
+	}
+
+	m.findIndex = (m.findIndex + 1) % len(m.findResults)
+	m.textBuffer.SetCursor(m.findResults[m.findIndex])
+	m.ensureCursorVisible()
+	
+	searchQuery := m.lastSearchQuery
+	if searchQuery != "" {
+		endPos := Position{
+			Line:   m.findResults[m.findIndex].Line,
+			Column: m.findResults[m.findIndex].Column + len(searchQuery),
+		}
+		m.textBuffer.SetSelection(&Selection{
+			Start: m.findResults[m.findIndex],
+			End:   endPos,
+		})
+	}
+	
+	m.setSearchMessage()
+	return m, nil
+}
+
+func (m Model) handleFindPrev() (tea.Model, tea.Cmd) {
+	if len(m.findResults) == 0 {
+		m.setMessage("No search results available")
+		return m, nil
+	}
+
+	m.findIndex--
+	if m.findIndex < 0 {
+		m.findIndex = len(m.findResults) - 1
+	}
+	
+	m.textBuffer.SetCursor(m.findResults[m.findIndex])
+	m.ensureCursorVisible()
+	
+	searchQuery := m.lastSearchQuery
+	if searchQuery != "" {
+		endPos := Position{
+			Line:   m.findResults[m.findIndex].Line,
+			Column: m.findResults[m.findIndex].Column + len(searchQuery),
+		}
+		m.textBuffer.SetSelection(&Selection{
+			Start: m.findResults[m.findIndex],
+			End:   endPos,
+		})
+	}
+	
+	m.setSearchMessage()
+	return m, nil
+}
+
+func (m *Model) setSearchMessage() {
+	if len(m.findResults) > 0 && m.findIndex >= 0 && m.findIndex < len(m.findResults) {
+		currentResult := m.findResults[m.findIndex]
+		lines := m.textBuffer.GetLines()
+		var linePreview string
+		if currentResult.Line < len(lines) {
+			line := lines[currentResult.Line]
+			start := max(0, currentResult.Column-10)
+			end := min(len(line), currentResult.Column+len(m.lastSearchQuery)+10)
+			linePreview = line[start:end]
+			if start > 0 {
+				linePreview = "..." + linePreview
+			}
+			if end < len(line) {
+				linePreview = linePreview + "..."
+			}
+		}
+		
+		m.setMessage(fmt.Sprintf("Match %d/%d at line %d: %s", 
+			m.findIndex+1, 
+			len(m.findResults), 
+			currentResult.Line+1,
+			linePreview))
+	}
 }
 
 func max(a, b int) int {
@@ -570,222 +414,343 @@ func min(a, b int) int {
 	return b
 }
 
-func (e *Editor) handleKeyPress(event *tcell.EventKey) *tcell.EventKey {
-	switch event.Key() {
-	case tcell.KeyCtrlS:
-		e.saveFile()
-		return nil
-	case tcell.KeyCtrlO:
-		e.showOpenDialog()
-		return nil
-	case tcell.KeyCtrlQ:
-		if e.modified {
-			e.showQuitDialog()
-		} else {
-			e.app.Stop()
+
+func (m Model) renderEditor() string {
+	lines := m.textBuffer.GetLines()
+	cursor := m.textBuffer.GetCursor()
+	selection := m.textBuffer.GetSelection()
+
+	visibleLines := m.getVisibleLines()
+	startLine := m.scrollOffset
+	endLine := startLine + visibleLines
+
+	if endLine > len(lines) {
+		endLine = len(lines) //idk what to do with this shit so its just here
+	}
+
+	var content strings.Builder
+
+	for i := 0; i < visibleLines; i++ {
+		actualLineIndex := startLine + i
+		lineNum := lineNumberStyle.Render(fmt.Sprintf("%4d", actualLineIndex+1))
+
+		line := ""
+		if actualLineIndex < len(lines) {
+			line = lines[actualLineIndex]
 		}
-		return nil
-	case tcell.KeyCtrlG:
-		e.showHelp()
-		return nil
-	case tcell.KeyCtrlF:
-		e.startSearch()
-		return nil
-	case tcell.KeyCtrlA:
-		e.textArea.Select(0, len(e.textArea.GetText()))
-		return nil
-	case tcell.KeyCtrlC, tcell.KeyCtrlX, tcell.KeyCtrlV:
-		return event
+
+		renderedLine := ""
+		if actualLineIndex < len(lines) {
+			renderedLine = m.renderLineWithSelection(line, actualLineIndex, cursor, selection)
+		} else {
+			renderedLine = ""
+		}
+		if actualLineIndex == cursor.Line {
+			renderedLine = cursorLineStyle.Render(renderedLine)
+		}
+
+		lineContent := lineNum + " " + renderedLine
+		paddedLine := m.padLineToWidth(lineContent)
+		content.WriteString(paddedLine + "\n")
 	}
 
-	return event
+	editorContent := content.String()
+	editor := editorStyle.
+		Width(m.width - 2).
+		Height(visibleLines + 2). 
+		Render(editorContent)
+
+	statusBar := m.renderStatusBar()
+
+	return lipgloss.JoinVertical(lipgloss.Center, editor, statusBar)
 }
 
-func (e *Editor) saveFile() {
-	if e.filename == "" {
-		e.showSaveAsDialog()
-		return
-	}
-
-	content := e.textArea.GetText()
-	err := os.WriteFile(e.filename, []byte(content), 0644)
-	if err != nil {
-		e.showError(fmt.Sprintf("Error saving file: %v", err))
-		return
-	}
-
-	e.modified = false
-	e.updateStatusBar()
-	e.showMessage("File saved successfully")
-}
-
-func (e *Editor) showSaveAsDialog() {
-	e.filename = "untitled.txt"
-	e.saveFile()
-}
-
-func (e *Editor) showOpenDialog() {
-	e.showMessage("Open dialog - TODO: Implement file browser")
-}
-
-
-//More unused things
-
-// func (e *Editor) showFindDialog() {
-// 	e.startSearch()
-// }
-
-func (e *Editor) showQuitDialog() {
-	modal := tview.NewModal().
-		SetText("File has been modified. Save before quitting?").
-		AddButtons([]string{"Save & Quit", "Quit without saving", "Cancel"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			switch buttonIndex {
-			case 0:
-				e.saveFile()
-				e.app.Stop()
-			case 1:
-				e.app.Stop()
-			case 2:
-				e.app.SetRoot(e.rootLayout, true)
+func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Position, selection *Selection) string {
+	if selection == nil {
+		// Show cursor
+		if lineIndex == cursor.Line {
+			if cursor.Column >= len(line) {
+				return line + "█"
+			} else {
+				return line[:cursor.Column] + "█" + line[cursor.Column+1:]
 			}
-		})
-
-	e.app.SetRoot(modal, true)
-}
-
-func (e *Editor) showMessage(message string) {
-	e.statusBar.SetText(fmt.Sprintf("[green]%s[white]", message))
-	go func() {
-		time.Sleep(2 * time.Second)
-		e.updateStatusBar()
-	}()
-}
-
-func (e *Editor) showError(message string) {
-	e.statusBar.SetText(fmt.Sprintf("[red]%s[white]", message))
-	go func() {
-		time.Sleep(3 * time.Second)
-		e.updateStatusBar()
-	}()
-}
-
-func (e *Editor) updateStatusBar() {
-	modifiedIndicator := ""
-	if e.modified {
-		modifiedIndicator = " [red]●[white]"
+		}
+		return line
 	}
 
-	filename := e.filename
+	start, end := m.normalizeSelection(selection)
+
+	if lineIndex < start.Line || lineIndex > end.Line {
+		if lineIndex == cursor.Line {
+			if cursor.Column >= len(line) {
+				return line + "█"
+			} else {
+				return line[:cursor.Column] + "█" + line[cursor.Column+1:]
+			}
+		}
+		return line
+	}
+
+	var result strings.Builder
+
+	if lineIndex == start.Line && lineIndex == end.Line {
+		result.WriteString(line[:start.Column])
+		selectedText := line[start.Column:end.Column]
+		result.WriteString(selectedTextStyle.Render(selectedText))
+		result.WriteString(line[end.Column:])
+	} else if lineIndex == start.Line {
+		result.WriteString(line[:start.Column])
+		selectedText := line[start.Column:]
+		result.WriteString(selectedTextStyle.Render(selectedText))
+	} else if lineIndex == end.Line {
+		selectedText := line[:end.Column]
+		result.WriteString(selectedTextStyle.Render(selectedText))
+		result.WriteString(line[end.Column:])
+	} else {
+		result.WriteString(selectedTextStyle.Render(line))
+	}
+
+	return result.String()
+}
+
+func (m Model) renderStatusBar() string {
+	if m.minibufferType != MinibufferNone {
+		return m.renderMinibuffer()
+	}
+
+	cursor := m.textBuffer.GetCursor()
+	lines := m.textBuffer.GetLines()
+
+	var modifiedIndicator string
+	if m.modified {
+		modifiedIndicator = modifiedStyle.Render(" *")
+	}
+
+	filename := m.filename
 	if filename == "" {
-		filename = "No file"
+		filename = "<untitled>"
 	}
 
-	text := e.textArea.GetText()
-	lines := len(strings.Split(text, "\n"))
+	position := fmt.Sprintf("Line %d, Column %d", cursor.Line+1, cursor.Column+1)
+	totalLines := fmt.Sprintf("Total: %d lines", len(lines))
 
-	cursorLine := e.lastLine + 1
-	cursorCol := e.lastCol + 1
+	left := fmt.Sprintf("%s%s", filename, modifiedIndicator)
+	center := position
+	right := totalLines
 
-	status := fmt.Sprintf("%s%s | %d:%d | %d lines | Ctrl+G for help",
-		filename,
-		modifiedIndicator,
-		cursorLine,
-		cursorCol,
-		lines)
-
-	e.statusBar.SetText(status)
-}
-
-func (e *Editor) showHelp() {
-	helpText := `
-Gecko Editor
-
-Keyboard Shortcuts:
-  Ctrl+S - Save file
-  Ctrl+O - Open file
-  Ctrl+Q - Quit
-  Ctrl+G - Show this help
-  Ctrl+F - Find text (opens search panel)
-  Ctrl+A - Select all
-  Ctrl+C - Copy
-  Ctrl+X - Cut  
-  Ctrl+V - Paste
-
-Navigation:
-  Arrow Keys - Move cursor
-  Home/End - Start/End of line
-  Ctrl+Home - Start of file
-  Ctrl+End - End of file
-  Page Up/Down - Scroll page
-
-Search Panel (Ctrl+F):
-  Type to search in real-time
-  Tab - Switch between search box and results
-  Enter - Jump to selected result and close panel
-  Esc - Cancel search and close panel
-  Arrow Keys - Navigate results list (auto-scroll preview)
-  Up/Down in search box - Navigate matches
-
-Press OK to continue...
-`
-
-	modal := tview.NewModal().
-		SetText(helpText).
-		AddButtons([]string{"OK"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			e.app.SetRoot(e.rootLayout, true)
-		})
-
-	e.app.SetRoot(modal, true)
-	e.app.SetFocus(modal)
-}
-
-func (e *Editor) LoadFile(filename string) error {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return err
+	if m.message != "" && time.Since(m.messageTime) < 3*time.Second {
+		center = m.message
 	}
 
-	e.filename = filename
-	e.textArea.SetText(string(content), false)
-	e.modified = false
-	e.lastLine = 0
-	e.lastCol = 0
-	e.updateStatusBar()
+	statusWidth := m.width - 4
+	centerStart := (statusWidth - len(center)) / 2
+	rightStart := statusWidth - len(right)
 
-	return nil
-}
+	var status strings.Builder
+	status.WriteString(left)
 
-func (e *Editor) SaveFile(filename string) error {
-	content := e.textArea.GetText()
-	err := os.WriteFile(filename, []byte(content), 0644)
-	if err != nil {
-		return err
+	for i := len(left); i < centerStart; i++ {
+		status.WriteString(" ")
+	}
+	status.WriteString(center)
+	for i := len(left) + len(center) + (centerStart - len(left)); i < rightStart; i++ {
+		status.WriteString(" ")
+	}
+	status.WriteString(right)
+
+	currentLen := len(status.String())
+	if currentLen < statusWidth {
+		status.WriteString(strings.Repeat(" ", statusWidth-currentLen))
 	}
 
-	e.filename = filename
-	e.modified = false
-	e.updateStatusBar()
-
-	return nil
+	return statusBarStyle.Width(m.width - 2).Render(status.String())
 }
 
-func (e *Editor) Run() error {
-	return e.app.Run()
+func (m Model) renderMinibuffer() string {
+	var prompt string
+	switch m.minibufferType {
+	case MinibufferGoToLine:
+		prompt = "Go to line: "
+	case MinibufferFind:
+		prompt = "Find: "
+	}
+
+	var inputDisplay strings.Builder
+	for i, char := range m.minibufferInput {
+		if i == m.minibufferCursorPos {
+			inputDisplay.WriteString(minibufferCursorStyle.Render(string(char)))
+		} else {
+			inputDisplay.WriteString(string(char))
+		}
+	}
+
+	if m.minibufferCursorPos >= len(m.minibufferInput) {
+		inputDisplay.WriteString(minibufferCursorStyle.Render(" "))
+	}
+
+	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
+	
+	minibufferWidth := m.width - 4
+	currentLen := len(prompt) + len(m.minibufferInput)
+	if currentLen < minibufferWidth {
+		padding := strings.Repeat(" ", minibufferWidth-currentLen)
+		content += padding
+	}
+
+	return minibufferStyle.Width(m.width - 2).Render(content)
+}
+
+func (m Model) renderHelp() string {
+	var help strings.Builder
+
+	help.WriteString(helpTitleStyle.Render("Text Editor Help"))
+	help.WriteString("\n\n")
+
+	helpItems := []struct {
+		key  string
+		desc string
+	}{
+		{"Ctrl+S", "Save file"},
+		{"Ctrl+Q", "Quit"},
+		{"Ctrl+C", "Copy selected text"},
+		{"Ctrl+X", "Cut selected text"},
+		{"Ctrl+V", "Paste text"},
+		{"Ctrl+Z", "Undo"},
+		{"Ctrl+Y", "Redo"},
+		{"Ctrl+A", "Select all"},
+		{"Ctrl+F", "Find text"},
+		{"Ctrl+N", "Find next occurrence"},          
+		{"Ctrl+L", "Find previous occurrence"},
+		{"Ctrl+G", "Go to line"},
+		{"Shift+Arrow", "Select text"},
+		{"Ctrl+Arrow", "Move by word"},
+		{"Home/End", "Move to line start/end"},
+		{"PgUp/PgDn", "Move by page"},
+		{"Ctrl+H", "Toggle this help"},
+		{"Escape", "Cancel dialog input"},
+	}
+
+	for _, item := range helpItems {
+		help.WriteString(helpKeyStyle.Render(fmt.Sprintf("%-12s", item.key)))
+		help.WriteString(" ")
+		help.WriteString(helpDescStyle.Render(item.desc))
+		help.WriteString("\n")
+	}
+
+	help.WriteString("\n")
+	help.WriteString(helpStyle.Render("Press Ctrl+H again to close help"))
+
+	return helpBoxStyle.Render(help.String())
+}
+
+func (m *Model) updateModified() {
+	m.modified = m.textBuffer.GetContent() != m.originalText
+}
+
+func (m *Model) setMessage(msg string) {
+	m.message = msg
+	m.messageTime = time.Now()
+}
+
+func (m Model) padLineToWidth(line string) string {
+	availableWidth := m.width - 4 
+
+	cleanLine := stripAnsiCodes(line)
+	currentLength := len(cleanLine)
+
+	if currentLength < availableWidth {
+		padding := strings.Repeat(" ", availableWidth-currentLength)
+		return line + padding
+	}
+
+	return line
+}
+
+func stripAnsiCodes(s string) string {
+	result := ""
+	inEscape := false
+
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\033' && i+1 < len(s) && s[i+1] == '[' {
+			inEscape = true
+			continue
+		}
+
+		if inEscape {
+			if s[i] == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+
+		result += string(s[i])
+	}
+
+	return result
+}
+
+func (m Model) getVisibleLines() int {
+	return m.height - 5
+}
+
+func (m *Model) ensureCursorVisible() {
+	cursor := m.textBuffer.GetCursor()
+	visibleLines := m.getVisibleLines()
+
+	if cursor.Line < m.scrollOffset {
+		m.scrollOffset = cursor.Line
+	} else if cursor.Line >= m.scrollOffset+visibleLines {
+		m.scrollOffset = cursor.Line - visibleLines + 1
+	}
+
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+}
+
+func (m Model) normalizeSelection(selection *Selection) (Position, Position) {
+	if selection == nil {
+		cursor := m.textBuffer.GetCursor()
+		return cursor, cursor
+	}
+
+	start, end := selection.Start, selection.End
+
+	if start.Line > end.Line || (start.Line == end.Line && start.Column > end.Column) {
+		start, end = end, start
+	}
+
+	return start, end
+}
+
+func (m Model) saveFile() error {
+	content := m.textBuffer.GetContent()
+	return os.WriteFile(m.filename, []byte(content), 0644)
+}
+
+func copyToClipboard(text string) error {
+	cmd := exec.Command("xclip", "-selection", "clipboard")
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}
+
+func pasteFromClipboard() (string, error) {
+	cmd := exec.Command("xclip", "-selection", "clipboard", "-o")
+	output, err := cmd.Output()
+	return string(output), err
 }
 
 func main() {
-	editor := NewEditor()
-
+	var filename string
 	if len(os.Args) > 1 {
-		filename := os.Args[1]
-		if err := editor.LoadFile(filename); err != nil {
-			log.Printf("Could not load file %s: %v", filename, err)
-		}
+		filename = os.Args[1]
 	}
 
-	if err := editor.Run(); err != nil {
-		log.Fatal(err)
+	model := NewModel(filename)
+
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Error running program: %v\n", err)
+		os.Exit(1)
 	}
 }
