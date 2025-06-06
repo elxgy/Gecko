@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,23 +16,6 @@ var (
 			Background(lipgloss.Color("#6f7cbf")).
 			Foreground(lipgloss.Color("230")).
 			Padding(0, 1)
-
-	// New style for minibuffer
-	minibufferStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#44475a")).
-			Foreground(lipgloss.Color("#f8f8f2")).
-			Padding(0, 1)
-
-	minibufferPromptStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#89b4fa")).
-			Bold(true)
-
-	minibufferInputStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#f8f8f2"))
-
-	minibufferCursorStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#f8f8f2")).
-			Foreground(lipgloss.Color("#282a36"))
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
@@ -54,7 +36,7 @@ var (
 			Align(lipgloss.Right)
 
 	selectedTextStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#44475a")).
+				Background(lipgloss.Color("#a600a0")).
 				Foreground(lipgloss.Color("#f8f8f2"))
 
 	cursorLineStyle = lipgloss.NewStyle().
@@ -80,33 +62,27 @@ var (
 			Foreground(lipgloss.Color("#cdd6f4"))
 )
 
-type MinibufferType int
-
-const (
-	MinibufferNone MinibufferType = iota
-	MinibufferGoToLine
-	MinibufferFind
-)
-
 type Model struct {
-	textBuffer     *TextBuffer
-	filename       string
-	modified       bool
-	originalText   string
-	width          int
-	height         int
-	showHelp       bool
-	lastSaved      time.Time
-	message        string
-	messageTime    time.Time
-	clipboard      string
-	scrollOffset   int
-	minibufferType MinibufferType
-	minibufferInput string
+	textBuffer          *TextBuffer
+	filename            string
+	modified            bool
+	originalText        string
+	width               int
+	height              int
+	showHelp            bool
+	lastSaved           time.Time
+	message             string
+	messageTime         time.Time
+	clipboard           string
+	scrollOffset        int
+	minibufferType      MinibufferType
+	minibufferInput     string
 	minibufferCursorPos int
-	findResults    []Position
-	findIndex      int
-	lastSearchQuery string
+	findResults         []Position
+	findIndex           int
+	lastSearchQuery     string
+	searchResultsOffset int 
+	maxResultsDisplay   int 
 }
 
 func NewModel(filename string) Model {
@@ -123,12 +99,13 @@ func NewModel(filename string) Model {
 	textBuffer := NewTextBuffer(content)
 
 	return Model{
-		textBuffer:   textBuffer,
-		filename:     filename,
-		originalText: originalText,
-		modified:     false,
-		findResults:  []Position{},
-		findIndex:    -1,
+		textBuffer:        textBuffer,
+		filename:          filename,
+		originalText:      originalText,
+		modified:          false,
+		findResults:       []Position{},
+		findIndex:         -1,
+		maxResultsDisplay: 8,
 	}
 }
 
@@ -138,88 +115,35 @@ func (m Model) Init() tea.Cmd {
 	})
 }
 
-func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		m.minibufferType = MinibufferNone
-		m.minibufferInput = ""
-		m.minibufferCursorPos = 0
+func (m *Model) adjustResultsOffset() {
+	if m.findIndex < m.searchResultsOffset {
+		m.searchResultsOffset = m.findIndex
+	} else if m.findIndex >= m.searchResultsOffset+m.maxResultsDisplay {
+		m.searchResultsOffset = m.findIndex - m.maxResultsDisplay + 1
+	}
+}
 
-	case tea.KeyEnter:
-		switch m.minibufferType {
-		case MinibufferGoToLine:
-			if line, err := strconv.Atoi(m.minibufferInput); err == nil {
-				m.textBuffer.GoToLine(line - 1)
-				m.ensureCursorVisible()
-			} else {
-				m.setMessage("Invalid line number")
+func (m *Model) jumpToCurrentResult() {
+	if len(m.findResults) > 0 && m.findIndex >= 0 && m.findIndex < len(m.findResults) {
+		// Set cursor position first
+		m.textBuffer.SetCursor(m.findResults[m.findIndex])
+		
+		// Center the result on screen
+		m.centerCursorOnScreen()
+		
+		// Set up text selection
+		searchQuery := m.lastSearchQuery
+		if searchQuery != "" {
+			endPos := Position{
+				Line:   m.findResults[m.findIndex].Line,
+				Column: m.findResults[m.findIndex].Column + len(searchQuery),
 			}
-
-		case MinibufferFind:
-			if m.minibufferInput != "" {
-				m.lastSearchQuery = m.minibufferInput  // Store the search query
-				m.findResults = m.textBuffer.FindText(m.minibufferInput, false)
-				if len(m.findResults) > 0 {
-					m.findIndex = 0
-					m.textBuffer.SetCursor(m.findResults[0])
-					
-					endPos := Position{
-						Line:   m.findResults[0].Line,
-						Column: m.findResults[0].Column + len(m.minibufferInput),
-					}
-					m.textBuffer.SetSelection(&Selection{
-						Start: m.findResults[0],
-						End:   endPos,
-					})
-					
-					m.ensureCursorVisible()
-					m.setSearchMessage()
-				} else {
-					m.setMessage("No matches found")
-				}
-			}
-		}
-
-		m.minibufferType = MinibufferNone
-		m.minibufferInput = ""
-		m.minibufferCursorPos = 0
-
-	case tea.KeyBackspace:
-		if m.minibufferCursorPos > 0 {
-			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos-1] + m.minibufferInput[m.minibufferCursorPos:]
-			m.minibufferCursorPos--
-		}
-
-	case tea.KeyDelete:
-		if m.minibufferCursorPos < len(m.minibufferInput) {
-			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + m.minibufferInput[m.minibufferCursorPos+1:]
-		}
-
-	case tea.KeyLeft:
-		if m.minibufferCursorPos > 0 {
-			m.minibufferCursorPos--
-		}
-
-	case tea.KeyRight:
-		if m.minibufferCursorPos < len(m.minibufferInput) {
-			m.minibufferCursorPos++
-		}
-
-	case tea.KeyHome:
-		m.minibufferCursorPos = 0
-
-	case tea.KeyEnd:
-		m.minibufferCursorPos = len(m.minibufferInput)
-
-	case tea.KeyRunes:
-		if len(msg.Runes) > 0 {
-			char := string(msg.Runes)
-			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + char + m.minibufferInput[m.minibufferCursorPos:]
-			m.minibufferCursorPos++
+			m.textBuffer.SetSelection(&Selection{
+				Start: m.findResults[m.findIndex],
+				End:   endPos,
+			})
 		}
 	}
-
-	return m, nil
 }
 
 func (m Model) handleSave() (tea.Model, tea.Cmd) {
@@ -318,6 +242,7 @@ func (m Model) View() string {
 
 	return m.renderEditor()
 }
+
 func (m Model) handleFindNext() (tea.Model, tea.Cmd) {
 	if len(m.findResults) == 0 {
 		m.setMessage("No search results available")
@@ -325,21 +250,7 @@ func (m Model) handleFindNext() (tea.Model, tea.Cmd) {
 	}
 
 	m.findIndex = (m.findIndex + 1) % len(m.findResults)
-	m.textBuffer.SetCursor(m.findResults[m.findIndex])
-	m.ensureCursorVisible()
-	
-	searchQuery := m.lastSearchQuery
-	if searchQuery != "" {
-		endPos := Position{
-			Line:   m.findResults[m.findIndex].Line,
-			Column: m.findResults[m.findIndex].Column + len(searchQuery),
-		}
-		m.textBuffer.SetSelection(&Selection{
-			Start: m.findResults[m.findIndex],
-			End:   endPos,
-		})
-	}
-	
+	m.jumpToCurrentResult()
 	m.setSearchMessage()
 	return m, nil
 }
@@ -355,21 +266,7 @@ func (m Model) handleFindPrev() (tea.Model, tea.Cmd) {
 		m.findIndex = len(m.findResults) - 1
 	}
 	
-	m.textBuffer.SetCursor(m.findResults[m.findIndex])
-	m.ensureCursorVisible()
-	
-	searchQuery := m.lastSearchQuery
-	if searchQuery != "" {
-		endPos := Position{
-			Line:   m.findResults[m.findIndex].Line,
-			Column: m.findResults[m.findIndex].Column + len(searchQuery),
-		}
-		m.textBuffer.SetSelection(&Selection{
-			Start: m.findResults[m.findIndex],
-			End:   endPos,
-		})
-	}
-	
+	m.jumpToCurrentResult()
 	m.setSearchMessage()
 	return m, nil
 }
@@ -420,12 +317,14 @@ func (m Model) renderEditor() string {
 	cursor := m.textBuffer.GetCursor()
 	selection := m.textBuffer.GetSelection()
 
-	visibleLines := m.getVisibleLines()
+	minibufferHeight := m.getMinibufferHeight()
+	visibleLines := m.height - 5 - minibufferHeight
+	
 	startLine := m.scrollOffset
 	endLine := startLine + visibleLines
 
 	if endLine > len(lines) {
-		endLine = len(lines) //idk what to do with this shit so its just here
+		endLine = len(lines) 
 	}
 
 	var content strings.Builder
@@ -467,7 +366,6 @@ func (m Model) renderEditor() string {
 
 func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Position, selection *Selection) string {
 	if selection == nil {
-		// Show cursor
 		if lineIndex == cursor.Line {
 			if cursor.Column >= len(line) {
 				return line + "█"
@@ -566,40 +464,6 @@ func (m Model) renderStatusBar() string {
 	return statusBarStyle.Width(m.width - 2).Render(status.String())
 }
 
-func (m Model) renderMinibuffer() string {
-	var prompt string
-	switch m.minibufferType {
-	case MinibufferGoToLine:
-		prompt = "Go to line: "
-	case MinibufferFind:
-		prompt = "Find: "
-	}
-
-	var inputDisplay strings.Builder
-	for i, char := range m.minibufferInput {
-		if i == m.minibufferCursorPos {
-			inputDisplay.WriteString(minibufferCursorStyle.Render(string(char)))
-		} else {
-			inputDisplay.WriteString(string(char))
-		}
-	}
-
-	if m.minibufferCursorPos >= len(m.minibufferInput) {
-		inputDisplay.WriteString(minibufferCursorStyle.Render(" "))
-	}
-
-	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
-	
-	minibufferWidth := m.width - 4
-	currentLen := len(prompt) + len(m.minibufferInput)
-	if currentLen < minibufferWidth {
-		padding := strings.Repeat(" ", minibufferWidth-currentLen)
-		content += padding
-	}
-
-	return minibufferStyle.Width(m.width - 2).Render(content)
-}
-
 func (m Model) renderHelp() string {
 	var help strings.Builder
 
@@ -618,20 +482,22 @@ func (m Model) renderHelp() string {
 		{"Ctrl+Z", "Undo"},
 		{"Ctrl+Y", "Redo"},
 		{"Ctrl+A", "Select all"},
-		{"Ctrl+F", "Find text"},
+		{"Ctrl+F", "Find text (shows results list)"},
+		{"↑/↓", "Navigate through search results"},
 		{"Ctrl+N", "Find next occurrence"},          
 		{"Ctrl+L", "Find previous occurrence"},
 		{"Ctrl+G", "Go to line"},
 		{"Shift+Arrow", "Select text"},
 		{"Ctrl+Arrow", "Move by word"},
-		{"Home/End", "Move to line start/end"},
+		{"Home/End", "Move to line start/end (or first/last result)"},
 		{"PgUp/PgDn", "Move by page"},
-		{"Ctrl+H", "Toggle this help"},
+		{"Enter", "Confirm action / Go to selected result"},
 		{"Escape", "Cancel dialog input"},
+		{"Ctrl+H", "Toggle this help"},
 	}
 
 	for _, item := range helpItems {
-		help.WriteString(helpKeyStyle.Render(fmt.Sprintf("%-12s", item.key)))
+		help.WriteString(helpKeyStyle.Render(fmt.Sprintf("%-15s", item.key)))
 		help.WriteString(" ")
 		help.WriteString(helpDescStyle.Render(item.desc))
 		help.WriteString("\n")
@@ -707,6 +573,32 @@ func (m *Model) ensureCursorVisible() {
 		m.scrollOffset = 0
 	}
 }
+
+func (m *Model) centerCursorOnScreen() {
+	cursor := m.textBuffer.GetCursor()
+	visibleLines := m.getVisibleLines()
+	totalLines := len(m.textBuffer.GetLines())
+	
+	// Try to center the cursor line on screen
+	targetOffset := cursor.Line - visibleLines/2
+	
+	// Clamp the offset to valid bounds
+	if targetOffset < 0 {
+		targetOffset = 0
+	}
+	
+	maxOffset := totalLines - visibleLines
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	
+	if targetOffset > maxOffset {
+		targetOffset = maxOffset
+	}
+	
+	m.scrollOffset = targetOffset
+}
+
 
 func (m Model) normalizeSelection(selection *Selection) (Position, Position) {
 	if selection == nil {
