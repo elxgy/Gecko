@@ -150,15 +150,16 @@ func (m Model) handleSave() (tea.Model, tea.Cmd) {
 			m.modified = false
 			m.originalText = m.textBuffer.GetContent()
 			m.lastSaved = time.Now()
-			m.setMessage("File saved successfully")
+			m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color("#ff00b3")).Render("File saved successfully"))
 		} else {
-			m.setMessage(fmt.Sprintf("Error saving file: %v", err))
+			m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color("#800024")).Render(fmt.Sprintf("Error saving file: %v", err)))
 		}
 	} else {
-		m.setMessage("No filename specified")
+		m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color("#e3e094")).Render("No filename specified"))
 	}
 	return m, nil
 }
+
 
 func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 	if m.textBuffer.HasSelection() {
