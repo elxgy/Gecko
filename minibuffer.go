@@ -1,37 +1,38 @@
 package main
 
 import (
-	"strings"
 	"fmt"
 	"strconv"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
-var(
+
+var (
 	minibufferStyle = lipgloss.NewStyle().
-	Background(lipgloss.Color("#44475a")).
-	Foreground(lipgloss.Color("#f8f8f2")).
-	Padding(0, 1)
+			Background(lipgloss.Color("#44475a")).
+			Foreground(lipgloss.Color("#f8f8f2")).
+			Padding(0, 1)
 
 	minibufferPromptStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#89b4fa")).
-		Bold(true)
+				Foreground(lipgloss.Color("#89b4fa")).
+				Bold(true)
 
 	minibufferInputStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#f8f8f2"))
+				Foreground(lipgloss.Color("#f8f8f2"))
 
 	minibufferCursorStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color("#f8f8f2")).
-		Foreground(lipgloss.Color("#282a36"))
+				Background(lipgloss.Color("#f8f8f2")).
+				Foreground(lipgloss.Color("#282a36"))
 
 	searchResultSelectedStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color("#b889fa")).
-		Foreground(lipgloss.Color("#1e1e2e")).
-		Bold(true)
-	
+					Background(lipgloss.Color("#b889fa")).
+					Foreground(lipgloss.Color("#1e1e2e")).
+					Bold(true)
+
 	searchResultNormalStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00ffe1"))
+				Foreground(lipgloss.Color("#00ffe1"))
 )
 
 type MinibufferType int
@@ -40,7 +41,7 @@ const (
 	MinibufferNone MinibufferType = iota
 	MinibufferGoToLine
 	MinibufferFind
-	MinibufferFindResults 
+	MinibufferFindResults
 )
 
 func (m Model) getMinibufferHeight() int {
@@ -48,7 +49,7 @@ func (m Model) getMinibufferHeight() int {
 	case MinibufferNone:
 		return 1
 	case MinibufferGoToLine, MinibufferFind:
-		return 1 
+		return 1
 	case MinibufferFindResults:
 		resultsCount := len(m.findResults)
 		if resultsCount > m.maxResultsDisplay {
@@ -67,8 +68,7 @@ func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.minibufferInput = ""
 		m.minibufferCursorPos = 0
 		m.searchResultsOffset = 0
-		m.textBuffer.ClearSelection() 
-
+		m.textBuffer.ClearSelection()
 
 	case tea.KeyEnter:
 		switch m.minibufferType {
@@ -119,7 +119,7 @@ func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.adjustResultsOffset()
 				m.jumpToCurrentResult()
 			} else {
-				m.findIndex = len(m.findResults) - 1 
+				m.findIndex = len(m.findResults) - 1
 			}
 			m.adjustResultsOffset()
 			m.jumpToCurrentResult()
@@ -132,14 +132,14 @@ func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.adjustResultsOffset()
 				m.jumpToCurrentResult()
 			} else {
-				m.findIndex = 0 
+				m.findIndex = 0
 			}
 			m.adjustResultsOffset()
 			m.jumpToCurrentResult()
 		}
 
 	case tea.KeyBackspace:
-		if m.minibufferType == MinibufferFind {
+		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
 			if m.minibufferCursorPos > 0 {
 				m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos-1] + m.minibufferInput[m.minibufferCursorPos:]
 				m.minibufferCursorPos--
@@ -147,46 +147,37 @@ func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyDelete:
-		if m.minibufferType == MinibufferFind {
+		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
 			if m.minibufferCursorPos < len(m.minibufferInput) {
 				m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + m.minibufferInput[m.minibufferCursorPos+1:]
 			}
 		}
 
 	case tea.KeyLeft:
-		if m.minibufferType == MinibufferFind {
+		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
 			if m.minibufferCursorPos > 0 {
 				m.minibufferCursorPos--
 			}
 		}
 
 	case tea.KeyRight:
-		if m.minibufferType == MinibufferFind {
+		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
 			if m.minibufferCursorPos < len(m.minibufferInput) {
 				m.minibufferCursorPos++
 			}
 		}
 
 	case tea.KeyHome:
-		if m.minibufferType == MinibufferFind {
+		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
 			m.minibufferCursorPos = 0
-		} else if m.minibufferType == MinibufferFindResults {
-			m.findIndex = 0
-			m.searchResultsOffset = 0
-			m.jumpToCurrentResult()
 		}
 
 	case tea.KeyEnd:
-		if m.minibufferType == MinibufferFind {
+		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
 			m.minibufferCursorPos = len(m.minibufferInput)
-		} else if m.minibufferType == MinibufferFindResults {
-			m.findIndex = len(m.findResults) - 1
-			m.adjustResultsOffset()
-			m.jumpToCurrentResult()
 		}
-
 	case tea.KeyRunes:
-		if m.minibufferType == MinibufferFind && len(msg.Runes) > 0 {
+		if (m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine) && len(msg.Runes) > 0 {
 			char := string(msg.Runes)
 			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + char + m.minibufferInput[m.minibufferCursorPos:]
 			m.minibufferCursorPos++
@@ -210,7 +201,7 @@ func (m Model) renderMinibuffer() string {
 
 func (m Model) renderGoToLineMinibuffer() string {
 	prompt := "Go to line: "
-	
+
 	var inputDisplay strings.Builder
 	for i, char := range m.minibufferInput {
 		if i == m.minibufferCursorPos {
@@ -225,7 +216,7 @@ func (m Model) renderGoToLineMinibuffer() string {
 	}
 
 	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
-	
+
 	minibufferWidth := m.width - 4
 	currentLen := len(prompt) + len(m.minibufferInput)
 	if currentLen < minibufferWidth {
@@ -238,7 +229,7 @@ func (m Model) renderGoToLineMinibuffer() string {
 
 func (m Model) renderFindMinibuffer() string {
 	prompt := "Find: "
-	
+
 	var inputDisplay strings.Builder
 	for i, char := range m.minibufferInput {
 		if i == m.minibufferCursorPos {
@@ -253,7 +244,7 @@ func (m Model) renderFindMinibuffer() string {
 	}
 
 	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
-	
+
 	minibufferWidth := m.width - 4
 	currentLen := len(prompt) + len(m.minibufferInput)
 	if currentLen < minibufferWidth {
@@ -266,8 +257,8 @@ func (m Model) renderFindMinibuffer() string {
 
 func (m Model) renderFindResultsMinibuffer() string {
 	var lines []string
-	
-	header := fmt.Sprintf("Search results for '%s' (%d matches):", 
+
+	header := fmt.Sprintf("Search results for '%s' (%d matches):",
 		m.lastSearchQuery, len(m.findResults))
 	lines = append(lines, minibufferPromptStyle.Render(header))
 
@@ -277,53 +268,53 @@ func (m Model) renderFindResultsMinibuffer() string {
 	if end > len(m.findResults) {
 		end = len(m.findResults)
 	}
-	
+
 	for i := start; i < end; i++ {
 		result := m.findResults[i]
 		isSelected := i == m.findIndex
-		
+
 		var linePreview string
 		if result.Line < len(textLines) {
 			line := textLines[result.Line]
-			
+
 			contextStart := max(0, result.Column-30)
 			contextEnd := min(len(line), result.Column+len(m.lastSearchQuery)+30)
-			
+
 			linePreview = line[contextStart:contextEnd]
-			
+
 			if contextStart > 0 {
 				linePreview = "..." + linePreview
 			}
 			if contextEnd < len(line) {
 				linePreview = linePreview + "..."
 			}
-			
+
 			if len(linePreview) > 70 {
 				linePreview = linePreview[:67] + "..."
 			}
-			
+
 			linePreview = strings.ReplaceAll(linePreview, "\t", "    ")
 		} else {
 			linePreview = "<end of file>"
 		}
-		
-		resultText := fmt.Sprintf("  %4d:%-4d  %s", 
+
+		resultText := fmt.Sprintf("  %4d:%-4d  %s",
 			result.Line+1, result.Column+1, linePreview)
-		
+
 		if isSelected {
 			resultText = searchResultSelectedStyle.Render(resultText)
 		} else {
 			resultText = searchResultNormalStyle.Render(resultText)
 		}
-		
+
 		lines = append(lines, resultText)
 	}
-	
+
 	hint := "Esc: cancel"
 	lines = append(lines, helpStyle.Render(hint))
-	
+
 	content := strings.Join(lines, "\n")
-	
+
 	return minibufferStyle.
 		Width(m.width - 2).
 		Render(content)

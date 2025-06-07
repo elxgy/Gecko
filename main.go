@@ -83,6 +83,8 @@ type Model struct {
 	lastSearchQuery     string
 	searchResultsOffset int
 	maxResultsDisplay   int
+	highlighter         *Highlighter
+	highlightedContent  []string
 }
 
 func NewModel(filename string) Model {
@@ -97,8 +99,8 @@ func NewModel(filename string) Model {
 	}
 
 	textBuffer := NewTextBuffer(content)
-
-	return Model{
+	model := Model{
+		scrollOffset:      0,
 		textBuffer:        textBuffer,
 		filename:          filename,
 		originalText:      originalText,
@@ -106,7 +108,12 @@ func NewModel(filename string) Model {
 		findResults:       []Position{},
 		findIndex:         -1,
 		maxResultsDisplay: 8,
+		highlighter:       NewHighlighter(filename),
 	}
+
+	model.applySyntaxHighlighting()
+	model.ensureCursorVisible()
+	return model
 }
 
 func (m Model) Init() tea.Cmd {
@@ -159,7 +166,6 @@ func (m Model) handleSave() (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
 
 func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 	if m.textBuffer.HasSelection() {
@@ -314,8 +320,11 @@ func (m Model) renderEditor() string {
 	cursor := m.textBuffer.GetCursor()
 	selection := m.textBuffer.GetSelection()
 
-	minibufferHeight := m.getMinibufferHeight()
-	visibleLines := m.height - 5 - minibufferHeight
+	if len(m.highlightedContent) == len(lines) {
+		lines = m.highlightedContent
+	}
+
+	visibleLines := m.getVisibleLines()
 
 	startLine := m.scrollOffset
 	endLine := startLine + visibleLines
@@ -362,50 +371,88 @@ func (m Model) renderEditor() string {
 }
 
 func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Position, selection *Selection) string {
-	if selection == nil {
-		if lineIndex == cursor.Line {
-			if cursor.Column >= len(line) {
-				return line + "█"
+	plainLine := stripAnsiCodes(line)
+	plainLen := len(plainLine)
+
+	var selected bool
+	var startCol, endCol int
+	if selection != nil {
+		start, end := m.normalizeSelection(selection)
+		if lineIndex >= start.Line && lineIndex <= end.Line {
+			selected = true
+			startCol = start.Column
+			endCol = end.Column
+
+			if lineIndex == start.Line {
+				startCol = clamp(startCol, 0, plainLen)
 			} else {
-				return line[:cursor.Column] + "█" + line[cursor.Column+1:]
+				startCol = 0
+			}
+
+			if lineIndex == end.Line {
+				endCol = clamp(endCol, 0, plainLen)
+			} else {
+				endCol = plainLen
 			}
 		}
-		return line
 	}
 
-	start, end := m.normalizeSelection(selection)
+	if !selected && lineIndex == cursor.Line {
+		cursorCol := clamp(cursor.Column, 0, plainLen)
+		cursorIndex := plainToAnsiIndex(line, cursorCol)
+		return line[:cursorIndex] + "█" + line[cursorIndex:]
+	}
 
-	if lineIndex < start.Line || lineIndex > end.Line {
-		if lineIndex == cursor.Line {
-			if cursor.Column >= len(line) {
-				return line + "█"
-			} else {
-				return line[:cursor.Column] + "█" + line[cursor.Column+1:]
-			}
+	if selected {
+		if startCol > endCol {
+			startCol, endCol = endCol, startCol
 		}
-		return line
+
+		startIndex := plainToAnsiIndex(line, startCol)
+		endIndex := plainToAnsiIndex(line, endCol)
+
+		before := line[:startIndex]
+		selected := line[startIndex:endIndex]
+		after := line[endIndex:]
+
+		return before + selectedTextStyle.Render(stripAnsiCodes(selected)) + after
 	}
 
-	var result strings.Builder
+	return line
+}
 
-	if lineIndex == start.Line && lineIndex == end.Line {
-		result.WriteString(line[:start.Column])
-		selectedText := line[start.Column:end.Column]
-		result.WriteString(selectedTextStyle.Render(selectedText))
-		result.WriteString(line[end.Column:])
-	} else if lineIndex == start.Line {
-		result.WriteString(line[:start.Column])
-		selectedText := line[start.Column:]
-		result.WriteString(selectedTextStyle.Render(selectedText))
-	} else if lineIndex == end.Line {
-		selectedText := line[:end.Column]
-		result.WriteString(selectedTextStyle.Render(selectedText))
-		result.WriteString(line[end.Column:])
-	} else {
-		result.WriteString(selectedTextStyle.Render(line))
+func plainToAnsiIndex(ansiStr string, plainIndex int) int {
+	plainPos := 0
+	ansiPos := 0
+	inEscape := false
+
+	for ansiPos < len(ansiStr) && plainPos < plainIndex {
+		if !inEscape && ansiStr[ansiPos] == '\x1b' {
+			inEscape = true
+		}
+
+		if inEscape {
+			if ansiStr[ansiPos] == 'm' {
+				inEscape = false
+			}
+		} else {
+			plainPos++
+		}
+
+		ansiPos++
 	}
 
-	return result.String()
+	return ansiPos
+}
+
+func clamp(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func (m Model) renderStatusBar() string {
@@ -500,6 +547,7 @@ func (m Model) renderHelp() string {
 
 func (m *Model) updateModified() {
 	m.modified = m.textBuffer.GetContent() != m.originalText
+	m.applySyntaxHighlighting()
 }
 
 func (m *Model) setMessage(msg string) {
@@ -522,35 +570,43 @@ func (m Model) padLineToWidth(line string) string {
 }
 
 func stripAnsiCodes(s string) string {
-	result := ""
-	inEscape := false
+	var b strings.Builder
+	b.Grow(len(s))
 
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\033' && i+1 < len(s) && s[i+1] == '[' {
+	inEscape := false
+	for _, r := range s {
+		if r == '\x1b' {
 			inEscape = true
 			continue
 		}
-
 		if inEscape {
-			if s[i] == 'm' {
+			if r == 'm' {
 				inEscape = false
 			}
 			continue
 		}
-
-		result += string(s[i])
+		b.WriteRune(r)
 	}
-
-	return result
+	return b.String()
 }
 
 func (m Model) getVisibleLines() int {
-	return m.height - 5
+	minibufferHeight := m.getMinibufferHeight()
+	visibleLines := m.height - 4 - minibufferHeight
+	if visibleLines < 0 {
+		return 0
+	}
+	return visibleLines
 }
 
 func (m *Model) ensureCursorVisible() {
 	cursor := m.textBuffer.GetCursor()
 	visibleLines := m.getVisibleLines()
+
+	if visibleLines <= 0 {
+		m.scrollOffset = 0
+		return
+	}
 
 	if cursor.Line < m.scrollOffset {
 		m.scrollOffset = cursor.Line
@@ -569,7 +625,6 @@ func (m *Model) centerCursorOnScreen() {
 	totalLines := len(m.textBuffer.GetLines())
 
 	targetOffset := cursor.Line - visibleLines/2
-
 	if targetOffset < 0 {
 		targetOffset = 0
 	}
@@ -578,7 +633,6 @@ func (m *Model) centerCursorOnScreen() {
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
-
 	if targetOffset > maxOffset {
 		targetOffset = maxOffset
 	}

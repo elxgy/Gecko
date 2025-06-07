@@ -239,9 +239,10 @@ func (tb *TextBuffer) DeleteSelection() bool {
 func (tb *TextBuffer) DeleteChar(backward bool) {
 	if tb.selection != nil {
 		tb.DeleteSelection()
+		tb.selection = nil 
 		return
 	}
-	
+
 	tb.saveState()
 	
 	if backward {
@@ -344,20 +345,19 @@ func (tb *TextBuffer) FindText(query string, caseSensitive bool) []Position {
 }
 
 func (tb *TextBuffer) clampPosition(pos Position) Position {
-	pos.Line = tb.clampLine(pos.Line)
-	
-	if pos.Line < len(tb.lines) {
-		maxCol := len(tb.lines[pos.Line])
-		if pos.Column > maxCol {
-			pos.Column = maxCol
-		}
-	}
-	
-	if pos.Column < 0 {
-		pos.Column = 0
-	}
-	
-	return pos
+    if pos.Line < 0 {
+        pos.Line = 0
+    } else if pos.Line >= len(tb.lines) {
+        pos.Line = len(tb.lines) - 1
+    }
+
+    if line := tb.lines[pos.Line]; pos.Column > len(line) {
+        pos.Column = len(line)
+    } else if pos.Column < 0 {
+        pos.Column = 0
+    }
+    
+    return pos
 }
 
 func (tb *TextBuffer) clampLine(line int) int {
