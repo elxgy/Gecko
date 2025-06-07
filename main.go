@@ -81,8 +81,8 @@ type Model struct {
 	findResults         []Position
 	findIndex           int
 	lastSearchQuery     string
-	searchResultsOffset int 
-	maxResultsDisplay   int 
+	searchResultsOffset int
+	maxResultsDisplay   int
 }
 
 func NewModel(filename string) Model {
@@ -125,13 +125,10 @@ func (m *Model) adjustResultsOffset() {
 
 func (m *Model) jumpToCurrentResult() {
 	if len(m.findResults) > 0 && m.findIndex >= 0 && m.findIndex < len(m.findResults) {
-		// Set cursor position first
 		m.textBuffer.SetCursor(m.findResults[m.findIndex])
-		
-		// Center the result on screen
+
 		m.centerCursorOnScreen()
-		
-		// Set up text selection
+
 		searchQuery := m.lastSearchQuery
 		if searchQuery != "" {
 			endPos := Position{
@@ -265,7 +262,7 @@ func (m Model) handleFindPrev() (tea.Model, tea.Cmd) {
 	if m.findIndex < 0 {
 		m.findIndex = len(m.findResults) - 1
 	}
-	
+
 	m.jumpToCurrentResult()
 	m.setSearchMessage()
 	return m, nil
@@ -288,10 +285,10 @@ func (m *Model) setSearchMessage() {
 				linePreview = linePreview + "..."
 			}
 		}
-		
-		m.setMessage(fmt.Sprintf("Match %d/%d at line %d: %s", 
-			m.findIndex+1, 
-			len(m.findResults), 
+
+		m.setMessage(fmt.Sprintf("Match %d/%d at line %d: %s",
+			m.findIndex+1,
+			len(m.findResults),
 			currentResult.Line+1,
 			linePreview))
 	}
@@ -311,7 +308,6 @@ func min(a, b int) int {
 	return b
 }
 
-
 func (m Model) renderEditor() string {
 	lines := m.textBuffer.GetLines()
 	cursor := m.textBuffer.GetCursor()
@@ -319,12 +315,12 @@ func (m Model) renderEditor() string {
 
 	minibufferHeight := m.getMinibufferHeight()
 	visibleLines := m.height - 5 - minibufferHeight
-	
+
 	startLine := m.scrollOffset
 	endLine := startLine + visibleLines
 
 	if endLine > len(lines) {
-		endLine = len(lines) 
+		endLine = len(lines)
 	}
 
 	var content strings.Builder
@@ -356,7 +352,7 @@ func (m Model) renderEditor() string {
 	editorContent := content.String()
 	editor := editorStyle.
 		Width(m.width - 2).
-		Height(visibleLines + 2). 
+		Height(visibleLines + 2).
 		Render(editorContent)
 
 	statusBar := m.renderStatusBar()
@@ -419,49 +415,41 @@ func (m Model) renderStatusBar() string {
 	cursor := m.textBuffer.GetCursor()
 	lines := m.textBuffer.GetLines()
 
-	var modifiedIndicator string
-	if m.modified {
-		modifiedIndicator = modifiedStyle.Render(" *")
-	}
-
 	filename := m.filename
 	if filename == "" {
 		filename = "<untitled>"
 	}
 
-	position := fmt.Sprintf("Line %d, Column %d", cursor.Line+1, cursor.Column+1)
-	totalLines := fmt.Sprintf("Total: %d lines", len(lines))
+	var leftSection string
+	if m.modified {
+		leftSection = modifiedStyle.Render(filename)
+	} else {
+		leftSection = filename
+	}
 
-	left := fmt.Sprintf("%s%s", filename, modifiedIndicator)
-	center := position
-	right := totalLines
-
+	var centerSection string
 	if m.message != "" && time.Since(m.messageTime) < 3*time.Second {
-		center = m.message
+		centerSection = m.message
+	} else {
+		centerSection = fmt.Sprintf("Line %d, Column %d", cursor.Line+1, cursor.Column+1)
 	}
 
-	statusWidth := m.width - 4
-	centerStart := (statusWidth - len(center)) / 2
-	rightStart := statusWidth - len(right)
+	rightSection := fmt.Sprintf("Total: %d lines", len(lines))
 
-	var status strings.Builder
-	status.WriteString(left)
+	contentWidth := m.width
 
-	for i := len(left); i < centerStart; i++ {
-		status.WriteString(" ")
-	}
-	status.WriteString(center)
-	for i := len(left) + len(center) + (centerStart - len(left)); i < rightStart; i++ {
-		status.WriteString(" ")
-	}
-	status.WriteString(right)
+	// i didnt figure a better way to get this shit working so its like this
+	leftStyle := lipgloss.NewStyle().Width(contentWidth / 3).Align(lipgloss.Left).Background(lipgloss.Color("#6f7cbf"))
+	centerStyle := lipgloss.NewStyle().Width(contentWidth / 3).Align(lipgloss.Center).Background(lipgloss.Color("#6f7cbf"))
+	rightStyle := lipgloss.NewStyle().Width(contentWidth / 3).Align(lipgloss.Right).Background(lipgloss.Color("#6f7cbf"))
 
-	currentLen := len(status.String())
-	if currentLen < statusWidth {
-		status.WriteString(strings.Repeat(" ", statusWidth-currentLen))
-	}
+	leftRendered := leftStyle.Render(leftSection)
+	centerRendered := centerStyle.Render(centerSection)
+	rightRendered := rightStyle.Render(rightSection)
 
-	return statusBarStyle.Width(m.width - 2).Render(status.String())
+	statusContent := lipgloss.JoinHorizontal(lipgloss.Top, leftRendered, centerRendered, rightRendered)
+
+	return statusBarStyle.Render(statusContent)
 }
 
 func (m Model) renderHelp() string {
@@ -484,7 +472,7 @@ func (m Model) renderHelp() string {
 		{"Ctrl+A", "Select all"},
 		{"Ctrl+F", "Find text (shows results list)"},
 		{"↑/↓", "Navigate through search results"},
-		{"Ctrl+N", "Find next occurrence"},          
+		{"Ctrl+N", "Find next occurrence"},
 		{"Ctrl+L", "Find previous occurrence"},
 		{"Ctrl+G", "Go to line"},
 		{"Shift+Arrow", "Select text"},
@@ -519,7 +507,7 @@ func (m *Model) setMessage(msg string) {
 }
 
 func (m Model) padLineToWidth(line string) string {
-	availableWidth := m.width - 4 
+	availableWidth := m.width - 4
 
 	cleanLine := stripAnsiCodes(line)
 	currentLength := len(cleanLine)
@@ -578,27 +566,24 @@ func (m *Model) centerCursorOnScreen() {
 	cursor := m.textBuffer.GetCursor()
 	visibleLines := m.getVisibleLines()
 	totalLines := len(m.textBuffer.GetLines())
-	
-	// Try to center the cursor line on screen
+
 	targetOffset := cursor.Line - visibleLines/2
-	
-	// Clamp the offset to valid bounds
+
 	if targetOffset < 0 {
 		targetOffset = 0
 	}
-	
+
 	maxOffset := totalLines - visibleLines
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
-	
+
 	if targetOffset > maxOffset {
 		targetOffset = maxOffset
 	}
-	
+
 	m.scrollOffset = targetOffset
 }
-
 
 func (m Model) normalizeSelection(selection *Selection) (Position, Position) {
 	if selection == nil {

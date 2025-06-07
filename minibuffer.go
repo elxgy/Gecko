@@ -54,7 +54,7 @@ func (m Model) getMinibufferHeight() int {
 		if resultsCount > m.maxResultsDisplay {
 			resultsCount = m.maxResultsDisplay
 		}
-		return 2 + resultsCount + 1 
+		return 3 + resultsCount
 	default:
 		return 1
 	}
@@ -67,6 +67,8 @@ func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.minibufferInput = ""
 		m.minibufferCursorPos = 0
 		m.searchResultsOffset = 0
+		m.textBuffer.ClearSelection() 
+
 
 	case tea.KeyEnter:
 		switch m.minibufferType {
@@ -116,7 +118,11 @@ func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.findIndex--
 				m.adjustResultsOffset()
 				m.jumpToCurrentResult()
+			} else {
+				m.findIndex = len(m.findResults) - 1 
 			}
+			m.adjustResultsOffset()
+			m.jumpToCurrentResult()
 		}
 
 	case tea.KeyDown:
@@ -125,7 +131,11 @@ func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.findIndex++
 				m.adjustResultsOffset()
 				m.jumpToCurrentResult()
+			} else {
+				m.findIndex = 0 
 			}
+			m.adjustResultsOffset()
+			m.jumpToCurrentResult()
 		}
 
 	case tea.KeyBackspace:
@@ -255,14 +265,13 @@ func (m Model) renderFindMinibuffer() string {
 }
 
 func (m Model) renderFindResultsMinibuffer() string {
-	var content strings.Builder
+	var lines []string
 	
 	header := fmt.Sprintf("Search results for '%s' (%d matches):", 
 		m.lastSearchQuery, len(m.findResults))
-	content.WriteString(minibufferPromptStyle.Render(header))
-	content.WriteString("\n")
+	lines = append(lines, minibufferPromptStyle.Render(header))
 
-	lines := m.textBuffer.GetLines()
+	textLines := m.textBuffer.GetLines()
 	start := m.searchResultsOffset
 	end := start + m.maxResultsDisplay
 	if end > len(m.findResults) {
@@ -274,41 +283,48 @@ func (m Model) renderFindResultsMinibuffer() string {
 		isSelected := i == m.findIndex
 		
 		var linePreview string
-		if result.Line < len(lines) {
-			line := lines[result.Line]
-			previewStart := max(0, result.Column-20)
-			previewEnd := min(len(line), result.Column+len(m.lastSearchQuery)+20)
-			linePreview = line[previewStart:previewEnd]
+		if result.Line < len(textLines) {
+			line := textLines[result.Line]
 			
-			if previewStart > 0 {
+			contextStart := max(0, result.Column-30)
+			contextEnd := min(len(line), result.Column+len(m.lastSearchQuery)+30)
+			
+			linePreview = line[contextStart:contextEnd]
+			
+			if contextStart > 0 {
 				linePreview = "..." + linePreview
 			}
-			if previewEnd < len(line) {
+			if contextEnd < len(line) {
 				linePreview = linePreview + "..."
 			}
 			
-			if len(linePreview) > 60 {
-				linePreview = linePreview[:57] + "..."
+			if len(linePreview) > 70 {
+				linePreview = linePreview[:67] + "..."
 			}
+			
+			linePreview = strings.ReplaceAll(linePreview, "\t", "    ")
+		} else {
+			linePreview = "<end of file>"
 		}
 		
-		resultText := fmt.Sprintf("  %3d:%-3d  %s", 
+		resultText := fmt.Sprintf("  %4d:%-4d  %s", 
 			result.Line+1, result.Column+1, linePreview)
 		
 		if isSelected {
-			content.WriteString(searchResultSelectedStyle.Render(resultText))
+			resultText = searchResultSelectedStyle.Render(resultText)
 		} else {
-			content.WriteString(searchResultNormalStyle.Render(resultText))
+			resultText = searchResultNormalStyle.Render(resultText)
 		}
-		content.WriteString("\n")
+		
+		lines = append(lines, resultText)
 	}
 	
 	hint := "Esc: cancel"
-	content.WriteString(helpStyle.Render(hint))
-	totalHeight := 2 + (end - start) + 1
+	lines = append(lines, helpStyle.Render(hint))
+	
+	content := strings.Join(lines, "\n")
 	
 	return minibufferStyle.
 		Width(m.width - 2).
-		Height(totalHeight).
-		Render(content.String())
+		Render(content)
 }

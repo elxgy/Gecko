@@ -158,9 +158,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateModified()
 			m.ensureCursorVisible()
 
+		case msg.Type == tea.KeySpace:
+			m.textBuffer.InsertText(" ")
+			m.updateModified()
+			m.ensureCursorVisible()
+
 		case msg.Type == tea.KeyRunes:
 			if len(msg.Runes) > 0 {
-				m.textBuffer.InsertText(string(msg.Runes))
+				text := string(msg.Runes)
+				m.textBuffer.InsertText(text)
 				m.updateModified()
 				m.ensureCursorVisible()
 			}
