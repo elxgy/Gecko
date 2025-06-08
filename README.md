@@ -97,7 +97,7 @@ sudo pacman -S xclip
 |----------|--------|
 | `Shift+Arrow` | Select text in direction |
 | `Ctrl+Arrow` | Move cursor by word |
-| `Ctrl+Shift+Arrow` | Select text by word |
+| `Alt+Arrow` | Select text by word |
 | `Home/End` | Move to line start/end |
 | `PgUp/PgDn` | Move by page |
 

@@ -541,6 +541,7 @@ func (m Model) renderHelp() string {
 		{"Ctrl+G", "Go to line"},
 		{"Shift+Arrow", "Select text"},
 		{"Ctrl+Arrow", "Move by word"},
+		{"Alt+Arrow", "Select by word"},
 		{"Home/End", "Move to line start/end"},
 		{"PgUp/PgDn", "Move by page"},
 		{"Enter", "Confirm action"},

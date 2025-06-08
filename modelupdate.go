@@ -15,7 +15,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.minibufferType != MinibufferNone {
 			return m.handleMinibufferInput(msg)
 		}
-
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
@@ -65,22 +64,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.ShiftLeft):
 			m.textBuffer.MoveCursor(0, -1, true)
-			m.updateModified()
 			m.ensureCursorVisible()
 
 		case key.Matches(msg, keys.ShiftRight):
 			m.textBuffer.MoveCursor(0, 1, true)
-			m.updateModified()
 			m.ensureCursorVisible()
 
 		case key.Matches(msg, keys.ShiftUp):
 			m.textBuffer.MoveCursor(-1, 0, true)
-			m.updateModified()
 			m.ensureCursorVisible()
 
 		case key.Matches(msg, keys.ShiftDown):
 			m.textBuffer.MoveCursor(1, 0, true)
-			m.updateModified()
 			m.ensureCursorVisible()
 
 		case msg.Type == tea.KeyCtrlLeft:
@@ -91,13 +86,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textBuffer.MoveToWordBoundary(true, false)
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyCtrlShiftLeft:
+		case key.Matches(msg, keys.AltLeft):
 			m.textBuffer.MoveToWordBoundary(false, true)
 			m.ensureCursorVisible()
+			return m, nil
 
-		case msg.Type == tea.KeyCtrlShiftRight:
+		case key.Matches(msg, keys.AltRight):
 			m.textBuffer.MoveToWordBoundary(true, true)
 			m.ensureCursorVisible()
+			return m, nil
 
 		case msg.Type == tea.KeyLeft:
 			m.textBuffer.MoveCursor(0, -1, false)

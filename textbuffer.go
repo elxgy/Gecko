@@ -16,10 +16,10 @@ type Selection struct {
 }
 
 type TextBuffer struct {
-	lines     []string
-	cursor    Position
-	selection *Selection
-	history   []TextState
+	lines        []string
+	cursor       Position
+	selection    *Selection
+	history      []TextState
 	historyIndex int
 	maxHistory   int
 }
@@ -34,13 +34,13 @@ func NewTextBuffer(content string) *TextBuffer {
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
-	
+
 	tb := &TextBuffer{
 		lines:      lines,
 		cursor:     Position{Line: 0, Column: 0},
 		maxHistory: 100,
 	}
-	
+
 	tb.saveState()
 	return tb
 }
@@ -84,14 +84,14 @@ func (tb *TextBuffer) MoveCursor(deltaLine, deltaColumn int, extend bool) {
 			End:   tb.cursor,
 		}
 	}
-	
+
 	newPos := Position{
 		Line:   tb.cursor.Line + deltaLine,
 		Column: tb.cursor.Column + deltaColumn,
 	}
-	
+
 	tb.cursor = tb.clampPosition(newPos)
-	
+
 	if extend && tb.selection != nil {
 		tb.selection.End = tb.cursor
 	} else if !extend {
@@ -106,17 +106,17 @@ func (tb *TextBuffer) MoveToWordBoundary(forward bool, extend bool) {
 			End:   tb.cursor,
 		}
 	}
-	
+
 	newPos := tb.cursor
-	
+
 	if forward {
 		newPos = tb.findNextWordBoundary(newPos)
 	} else {
 		newPos = tb.findPrevWordBoundary(newPos)
 	}
-	
+
 	tb.cursor = newPos
-	
+
 	if extend && tb.selection != nil {
 		tb.selection.End = tb.cursor
 	} else if !extend {
@@ -146,9 +146,9 @@ func (tb *TextBuffer) GetSelectedText() string {
 	if tb.selection == nil {
 		return ""
 	}
-	
+
 	start, end := tb.normalizeSelection()
-	
+
 	if start.Line == end.Line {
 		line := tb.lines[start.Line]
 		if start.Column >= len(line) {
@@ -162,7 +162,7 @@ func (tb *TextBuffer) GetSelectedText() string {
 	}
 
 	var result strings.Builder
-	
+
 	if start.Line < len(tb.lines) {
 		line := tb.lines[start.Line]
 		if start.Column < len(line) {
@@ -170,12 +170,12 @@ func (tb *TextBuffer) GetSelectedText() string {
 		}
 		result.WriteString("\n")
 	}
-	
+
 	for i := start.Line + 1; i < end.Line && i < len(tb.lines); i++ {
 		result.WriteString(tb.lines[i])
 		result.WriteString("\n")
 	}
-	
+
 	if end.Line < len(tb.lines) && end.Line > start.Line {
 		line := tb.lines[end.Line]
 		endCol := end.Column
@@ -184,20 +184,20 @@ func (tb *TextBuffer) GetSelectedText() string {
 		}
 		result.WriteString(line[:endCol])
 	}
-	
+
 	return result.String()
 }
 
 func (tb *TextBuffer) InsertText(text string) {
 	tb.saveState()
-	
+
 	if tb.selection != nil {
 		tb.deleteSelection()
 	}
-	
+
 	lines := strings.Split(text, "\n")
 	currentLine := tb.lines[tb.cursor.Line]
-	
+
 	if len(lines) == 1 {
 		before := currentLine[:tb.cursor.Column]
 		after := currentLine[tb.cursor.Column:]
@@ -206,23 +206,23 @@ func (tb *TextBuffer) InsertText(text string) {
 	} else {
 		before := currentLine[:tb.cursor.Column]
 		after := currentLine[tb.cursor.Column:]
-		
+
 		tb.lines[tb.cursor.Line] = before + lines[0]
-		
+
 		newLines := make([]string, len(tb.lines)+len(lines)-1)
 		copy(newLines, tb.lines[:tb.cursor.Line+1])
 		copy(newLines[tb.cursor.Line+1:], lines[1:])
 		copy(newLines[tb.cursor.Line+len(lines):], tb.lines[tb.cursor.Line+1:])
-		
+
 		tb.lines = newLines
 
 		lastLineIdx := tb.cursor.Line + len(lines) - 1
 		tb.lines[lastLineIdx] += after
-		
+
 		tb.cursor.Line = lastLineIdx
 		tb.cursor.Column = len(lines[len(lines)-1])
 	}
-	
+
 	tb.selection = nil
 }
 
@@ -230,7 +230,7 @@ func (tb *TextBuffer) DeleteSelection() bool {
 	if tb.selection == nil {
 		return false
 	}
-	
+
 	tb.saveState()
 	tb.deleteSelection()
 	return true
@@ -239,12 +239,12 @@ func (tb *TextBuffer) DeleteSelection() bool {
 func (tb *TextBuffer) DeleteChar(backward bool) {
 	if tb.selection != nil {
 		tb.DeleteSelection()
-		tb.selection = nil 
+		tb.selection = nil
 		return
 	}
 
 	tb.saveState()
-	
+
 	if backward {
 		if tb.cursor.Column > 0 {
 
@@ -315,18 +315,18 @@ func (tb *TextBuffer) GoToLine(line int) {
 
 func (tb *TextBuffer) FindText(query string, caseSensitive bool) []Position {
 	var positions []Position
-	
+
 	searchQuery := query
 	if !caseSensitive {
 		searchQuery = strings.ToLower(query)
 	}
-	
+
 	for lineIdx, line := range tb.lines {
 		searchLine := line
 		if !caseSensitive {
 			searchLine = strings.ToLower(line)
 		}
-		
+
 		col := 0
 		for {
 			idx := strings.Index(searchLine[col:], searchQuery)
@@ -340,24 +340,24 @@ func (tb *TextBuffer) FindText(query string, caseSensitive bool) []Position {
 			col += idx + 1
 		}
 	}
-	
+
 	return positions
 }
 
 func (tb *TextBuffer) clampPosition(pos Position) Position {
-    if pos.Line < 0 {
-        pos.Line = 0
-    } else if pos.Line >= len(tb.lines) {
-        pos.Line = len(tb.lines) - 1
-    }
+	if pos.Line < 0 {
+		pos.Line = 0
+	} else if pos.Line >= len(tb.lines) {
+		pos.Line = len(tb.lines) - 1
+	}
 
-    if line := tb.lines[pos.Line]; pos.Column > len(line) {
-        pos.Column = len(line)
-    } else if pos.Column < 0 {
-        pos.Column = 0
-    }
-    
-    return pos
+	if line := tb.lines[pos.Line]; pos.Column > len(line) {
+		pos.Column = len(line)
+	} else if pos.Column < 0 {
+		pos.Column = 0
+	}
+
+	return pos
 }
 
 func (tb *TextBuffer) clampLine(line int) int {
@@ -374,13 +374,13 @@ func (tb *TextBuffer) normalizeSelection() (Position, Position) {
 	if tb.selection == nil {
 		return tb.cursor, tb.cursor
 	}
-	
+
 	start, end := tb.selection.Start, tb.selection.End
-	
+
 	if start.Line > end.Line || (start.Line == end.Line && start.Column > end.Column) {
 		start, end = end, start
 	}
-	
+
 	return start, end
 }
 
@@ -388,9 +388,9 @@ func (tb *TextBuffer) deleteSelection() {
 	if tb.selection == nil {
 		return
 	}
-	
+
 	start, end := tb.normalizeSelection()
-	
+
 	if start.Line == end.Line {
 
 		line := tb.lines[start.Line]
@@ -401,17 +401,17 @@ func (tb *TextBuffer) deleteSelection() {
 
 		startLine := tb.lines[start.Line][:start.Column]
 		endLine := tb.lines[end.Line][end.Column:]
-		
+
 		newLines := make([]string, len(tb.lines)-(end.Line-start.Line))
 		copy(newLines, tb.lines[:start.Line])
 		newLines[start.Line] = startLine + endLine
 		copy(newLines[start.Line+1:], tb.lines[end.Line+1:])
-		
+
 		tb.lines = newLines
 		tb.cursor = start
 
 	}
-	
+
 	tb.selection = nil
 }
 
@@ -419,22 +419,22 @@ func (tb *TextBuffer) findNextWordBoundary(pos Position) Position {
 	if pos.Line >= len(tb.lines) {
 		return pos
 	}
-	
+
 	line := tb.lines[pos.Line]
 	col := pos.Column
-	
+
 	for col < len(line) && !unicode.IsSpace(rune(line[col])) {
 		col++
 	}
-	
+
 	for col < len(line) && unicode.IsSpace(rune(line[col])) {
 		col++
 	}
-	
+
 	if col >= len(line) && pos.Line < len(tb.lines)-1 {
 		return Position{Line: pos.Line + 1, Column: 0}
 	}
-	
+
 	return Position{Line: pos.Line, Column: col}
 }
 
@@ -442,28 +442,28 @@ func (tb *TextBuffer) findPrevWordBoundary(pos Position) Position {
 	if pos.Line < 0 {
 		return pos
 	}
-	
+
 	line := tb.lines[pos.Line]
 	col := pos.Column
-	
+
 	if col > len(line) {
 		col = len(line)
 	}
-	
+
 	if col > 0 {
 		col--
-		
+
 		for col > 0 && unicode.IsSpace(rune(line[col])) {
 			col--
 		}
-		
+
 		for col > 0 && !unicode.IsSpace(rune(line[col-1])) {
 			col--
 		}
 	} else if pos.Line > 0 {
 		return Position{Line: pos.Line - 1, Column: len(tb.lines[pos.Line-1])}
 	}
-	
+
 	return Position{Line: pos.Line, Column: col}
 }
 
@@ -471,16 +471,16 @@ func (tb *TextBuffer) saveState() {
 	if tb.historyIndex < len(tb.history)-1 {
 		tb.history = tb.history[:tb.historyIndex+1]
 	}
-	
+
 	state := TextState{
 		Lines:  make([]string, len(tb.lines)),
 		Cursor: tb.cursor,
 	}
 	copy(state.Lines, tb.lines)
-	
+
 	tb.history = append(tb.history, state)
 	tb.historyIndex = len(tb.history) - 1
-	
+
 	if len(tb.history) > tb.maxHistory {
 		tb.history = tb.history[1:]
 		tb.historyIndex--

@@ -23,6 +23,8 @@ type KeyMap struct {
 	ShiftDown  key.Binding
 	ShiftUp    key.Binding
 	ShiftRight key.Binding
+	AltLeft    key.Binding
+	AltRight   key.Binding
 }
 
 var keys = KeyMap{
@@ -97,5 +99,13 @@ var keys = KeyMap{
 	ShiftDown: key.NewBinding(
 		key.WithKeys("shift+down"),
 		key.WithHelp("shift+down", "select text down"),
+	),
+	AltLeft: key.NewBinding(
+		key.WithKeys("alt+left"),
+		key.WithHelp("alt+left", "select previous word"),
+	),
+	AltRight: key.NewBinding(
+		key.WithKeys("alt+right"),
+		key.WithHelp("alt+right", "select next word"),
 	),
 }
