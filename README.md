@@ -51,7 +51,7 @@ On Arch Linux:
 sudo pacman -S xclip
 ```
 
-## 📖 Usage
+## Usage
 
 ### Basic Usage
 ```bash
@@ -65,7 +65,7 @@ sudo pacman -S xclip
 ./gecko main.go
 ```
 
-## ⌨️ Keyboard Shortcuts
+## Keyboard Shortcuts
 
 ### File Operations
 | Shortcut | Action |
@@ -129,7 +129,7 @@ The editor automatically detects file types based on file extensions and applies
 Gecko is built with a modular architecture:
 
 - **`main.go`**: Core application logic and UI rendering
-- **`textbuffer.go`**: Text manipulation and cursor management *(not shown but referenced)*
+- **`textbuffer.go`**: Text manipulation and cursor management
 - **`keybinds.go`**: Keyboard shortcut definitions
 - **`minibuffer.go`**: Interactive dialogs and search interface
 - **`modelupdate.go`**: Event handling and state updates
