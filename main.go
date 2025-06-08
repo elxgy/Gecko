@@ -240,11 +240,18 @@ func (m Model) handleSelectAll() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	baseView := m.renderEditor()
 	if m.showHelp {
-		return m.renderHelp()
+		helpView := m.renderHelp()
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			helpView,
+		)
 	}
-
-	return m.renderEditor()
+	return baseView
 }
 
 func (m Model) handleFindNext() (tea.Model, tea.Cmd) {
@@ -501,9 +508,18 @@ func (m Model) renderStatusBar() string {
 }
 
 func (m Model) renderHelp() string {
+	const keyColumnWidth = 18
+	maxWidth := m.width * 40 / 100
+	if maxWidth < 50 {
+		maxWidth = 50
+	}
+
+	contentWidth := maxWidth - 3
+	descWidth := contentWidth - keyColumnWidth - 1
 	var help strings.Builder
 
-	help.WriteString(helpTitleStyle.Render("Text Editor Help"))
+	title := helpTitleStyle.Render("Text Editor Help")
+	help.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, title))
 	help.WriteString("\n\n")
 
 	helpItems := []struct {
@@ -525,22 +541,28 @@ func (m Model) renderHelp() string {
 		{"Ctrl+G", "Go to line"},
 		{"Shift+Arrow", "Select text"},
 		{"Ctrl+Arrow", "Move by word"},
-		{"Home/End", "Move to line start/end (or first/last result)"},
+		{"Home/End", "Move to line start/end"},
 		{"PgUp/PgDn", "Move by page"},
-		{"Enter", "Confirm action / Go to selected result"},
+		{"Enter", "Confirm action"},
 		{"Escape", "Cancel dialog input"},
 		{"Ctrl+H", "Toggle this help"},
 	}
 
 	for _, item := range helpItems {
-		help.WriteString(helpKeyStyle.Render(fmt.Sprintf("%-15s", item.key)))
-		help.WriteString(" ")
-		help.WriteString(helpDescStyle.Render(item.desc))
-		help.WriteString("\n")
+		key := helpKeyStyle.Render(item.key)
+		key = lipgloss.NewStyle().Width(keyColumnWidth).Render(key)
+
+		desc := lipgloss.NewStyle().
+			Width(descWidth).
+			MaxWidth(descWidth).
+			Render(helpDescStyle.Render(item.desc))
+
+		help.WriteString(key + " " + desc + "\n")
 	}
 
 	help.WriteString("\n")
-	help.WriteString(helpStyle.Render("Press Ctrl+H again to close help"))
+	footer := helpStyle.Render("Press Ctrl+H again to close help")
+	help.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, footer))
 
 	return helpBoxStyle.Render(help.String())
 }
