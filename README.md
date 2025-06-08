@@ -34,10 +34,10 @@
 
 ### Build from Source
 ```bash
-git clone https://github.com/yourusername/gecko
+git clone https://github.com/elxgy/Gecko
 cd gecko
 go mod tidy
-go build -o gecko
+go build -o Gecko
 ```
 
 ### Install Dependencies
@@ -56,7 +56,7 @@ sudo pacman -S xclip
 ### Basic Usage
 ```bash
 # Open a new file
-./gecko
+./gecko <filename>
 
 # Open an existing file
 ./gecko filename.txt
