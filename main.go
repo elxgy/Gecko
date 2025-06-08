@@ -708,4 +708,6 @@ func main() {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
 	}
+
+	fmt.Print("\033[2J\033[H")
 }
