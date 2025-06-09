@@ -12,9 +12,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		//==================== MINIBUFFER INPUT ====================
+
 		if m.minibufferType != MinibufferNone {
 			return m.handleMinibufferInput(msg)
 		}
+
+		//==================== APPLICATION CONTROL KEYS ====================
+
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
@@ -25,24 +30,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Help):
 			m.showHelp = !m.showHelp
 			return m, nil
-
-		case key.Matches(msg, keys.Copy):
-			return m.handleCopy()
-
-		case key.Matches(msg, keys.Cut):
-			return m.handleCut()
-
-		case key.Matches(msg, keys.Paste):
-			return m.handlePaste()
-
-		case key.Matches(msg, keys.Undo):
-			return m.handleUndo()
-
-		case key.Matches(msg, keys.Redo):
-			return m.handleRedo()
-
-		case key.Matches(msg, keys.SelectAll):
-			return m.handleSelectAll()
 
 		case key.Matches(msg, keys.GoToLine):
 			m.minibufferType = MinibufferGoToLine
@@ -61,7 +48,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.FindPrev):
 			return m.handleFindPrev()
+		}
 
+		//==================== CLIPBOARD & EDITING OPERATIONS ====================
+
+		switch {
+		case key.Matches(msg, keys.Copy):
+			return m.handleCopy()
+
+		case key.Matches(msg, keys.Cut):
+			return m.handleCut()
+
+		case key.Matches(msg, keys.Paste):
+			return m.handlePaste()
+
+		case key.Matches(msg, keys.Undo):
+			return m.handleUndo()
+
+		case key.Matches(msg, keys.Redo):
+			return m.handleRedo()
+
+		case key.Matches(msg, keys.SelectAll):
+			return m.handleSelectAll()
+		}
+
+		//==================== SELECTION NAVIGATION (SHIFT + ARROWS) ====================
+
+		switch {
 		case key.Matches(msg, keys.ShiftLeft):
 			m.textBuffer.MoveCursor(0, -1, true)
 			m.ensureCursorVisible()
@@ -77,7 +90,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.ShiftDown):
 			m.textBuffer.MoveCursor(1, 0, true)
 			m.ensureCursorVisible()
+		}
 
+		//==================== WORD NAVIGATION (CTRL + ARROWS) ====================
+
+		switch {
 		case msg.Type == tea.KeyCtrlLeft:
 			m.textBuffer.MoveToWordBoundary(false, false)
 			m.ensureCursorVisible()
@@ -85,7 +102,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Type == tea.KeyCtrlRight:
 			m.textBuffer.MoveToWordBoundary(true, false)
 			m.ensureCursorVisible()
+		}
 
+		//==================== WORD SELECTION (ALT + ARROWS) ====================
+
+		switch {
 		case key.Matches(msg, keys.AltLeft):
 			m.textBuffer.MoveToWordBoundary(false, true)
 			m.ensureCursorVisible()
@@ -95,72 +116,88 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textBuffer.MoveToWordBoundary(true, true)
 			m.ensureCursorVisible()
 			return m, nil
+		}
 
-		case msg.Type == tea.KeyLeft:
+		//==================== BASIC ARROW NAVIGATION ====================
+
+		switch msg.Type {
+		case tea.KeyLeft:
 			m.textBuffer.MoveCursor(0, -1, false)
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyRight:
+		case tea.KeyRight:
 			m.textBuffer.MoveCursor(0, 1, false)
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyUp:
+		case tea.KeyUp:
 			m.textBuffer.MoveCursor(-1, 0, false)
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyDown:
+		case tea.KeyDown:
 			m.textBuffer.MoveCursor(1, 0, false)
 			m.ensureCursorVisible()
+		}
 
-		case msg.Type == tea.KeyHome:
+		//==================== LINE NAVIGATION (HOME/END) ====================
+
+		switch msg.Type {
+		case tea.KeyHome:
 			cursor := m.textBuffer.GetCursor()
 			m.textBuffer.SetCursor(Position{Line: cursor.Line, Column: 0})
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyEnd:
+		case tea.KeyEnd:
 			cursor := m.textBuffer.GetCursor()
 			lines := m.textBuffer.GetLines()
 			if cursor.Line < len(lines) {
 				m.textBuffer.SetCursor(Position{Line: cursor.Line, Column: len(lines[cursor.Line])})
 			}
 			m.ensureCursorVisible()
+		}
 
-		case msg.Type == tea.KeyPgUp:
+		//==================== PAGE NAVIGATION (PGUP/PGDN) ====================
+
+		switch msg.Type {
+		case tea.KeyPgUp:
 			visible := m.getVisibleLines()
 			m.textBuffer.MoveCursor(-visible, 0, false)
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyPgDown:
+		case tea.KeyPgDown:
 			visible := m.getVisibleLines()
 			m.textBuffer.MoveCursor(visible, 0, false)
 			m.ensureCursorVisible()
+		}
 
-		case msg.Type == tea.KeyEnter:
+		//==================== TEXT MODIFICATION KEYS ====================
+
+		switch msg.Type {
+		case tea.KeyEnter:
 			m.textBuffer.InsertText("\n")
 			m.updateModified()
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyBackspace:
+		case tea.KeyBackspace:
 			m.textBuffer.DeleteChar(true)
 			m.updateModified()
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyDelete:
+		case tea.KeyDelete:
 			m.textBuffer.DeleteChar(false)
 			m.updateModified()
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyTab:
+		case tea.KeyTab:
 			m.textBuffer.InsertText("\t")
 			m.updateModified()
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeySpace:
+		case tea.KeySpace:
 			m.textBuffer.InsertText(" ")
 			m.updateModified()
 			m.ensureCursorVisible()
 
-		case msg.Type == tea.KeyRunes:
+		case tea.KeyRunes:
 			if len(msg.Runes) > 0 {
 				text := string(msg.Runes)
 				m.textBuffer.InsertText(text)

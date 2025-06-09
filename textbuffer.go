@@ -16,12 +16,13 @@ type Selection struct {
 }
 
 type TextBuffer struct {
-	lines        []string
-	cursor       Position
-	selection    *Selection
-	history      []TextState
-	historyIndex int
-	maxHistory   int
+	lines                   []string
+	cursor                  Position
+	selection               *Selection
+	history                 []TextState
+	historyIndex            int
+	maxHistory              int
+	selectAllOriginalCursor *Position
 }
 
 type TextState struct {
@@ -77,7 +78,24 @@ func (tb *TextBuffer) SetCursor(pos Position) {
 	tb.cursor = tb.clampPosition(pos)
 }
 
+func (tb *TextBuffer) restoreSelectAllCursor() {
+	if tb.selectAllOriginalCursor != nil {
+		tb.cursor = *tb.selectAllOriginalCursor
+		tb.selectAllOriginalCursor = nil
+	}
+}
+
 func (tb *TextBuffer) MoveCursor(deltaLine, deltaColumn int, extend bool) {
+	if !extend && tb.selectAllOriginalCursor != nil {
+		tb.restoreSelectAllCursor()
+		tb.selection = nil
+		return
+	}
+
+	if tb.selectAllOriginalCursor != nil {
+		tb.selectAllOriginalCursor = nil
+	}
+
 	if extend && tb.selection == nil {
 		tb.selection = &Selection{
 			Start: tb.cursor,
@@ -100,6 +118,16 @@ func (tb *TextBuffer) MoveCursor(deltaLine, deltaColumn int, extend bool) {
 }
 
 func (tb *TextBuffer) MoveToWordBoundary(forward bool, extend bool) {
+	if !extend && tb.selectAllOriginalCursor != nil {
+		tb.restoreSelectAllCursor()
+		tb.selection = nil
+		return
+	}
+
+	if tb.selectAllOriginalCursor != nil {
+		tb.selectAllOriginalCursor = nil
+	}
+
 	if extend && tb.selection == nil {
 		tb.selection = &Selection{
 			Start: tb.cursor,
@@ -125,6 +153,11 @@ func (tb *TextBuffer) MoveToWordBoundary(forward bool, extend bool) {
 }
 
 func (tb *TextBuffer) SelectAll() {
+	tb.selectAllOriginalCursor = &Position{
+		Line:   tb.cursor.Line,
+		Column: tb.cursor.Column,
+	}
+
 	tb.selection = &Selection{
 		Start: Position{Line: 0, Column: 0},
 		End:   Position{Line: len(tb.lines) - 1, Column: len(tb.lines[len(tb.lines)-1])},
@@ -191,6 +224,8 @@ func (tb *TextBuffer) GetSelectedText() string {
 func (tb *TextBuffer) InsertText(text string) {
 	tb.saveState()
 
+	tb.selectAllOriginalCursor = nil
+
 	if tb.selection != nil {
 		tb.deleteSelection()
 	}
@@ -232,6 +267,7 @@ func (tb *TextBuffer) DeleteSelection() bool {
 	}
 
 	tb.saveState()
+	tb.selectAllOriginalCursor = nil
 	tb.deleteSelection()
 	return true
 }
@@ -244,6 +280,8 @@ func (tb *TextBuffer) DeleteChar(backward bool) {
 	}
 
 	tb.saveState()
+
+	tb.selectAllOriginalCursor = nil
 
 	if backward {
 		if tb.cursor.Column > 0 {
@@ -287,6 +325,7 @@ func (tb *TextBuffer) Undo() bool {
 		copy(tb.lines, state.Lines)
 		tb.cursor = state.Cursor
 		tb.selection = nil
+		tb.selectAllOriginalCursor = nil
 		return true
 	}
 	return false
@@ -300,6 +339,7 @@ func (tb *TextBuffer) Redo() bool {
 		copy(tb.lines, state.Lines)
 		tb.cursor = state.Cursor
 		tb.selection = nil
+		tb.selectAllOriginalCursor = nil
 		return true
 	}
 	return false
@@ -311,6 +351,7 @@ func (tb *TextBuffer) GoToLine(line int) {
 		Column: 0,
 	}
 	tb.selection = nil
+	tb.selectAllOriginalCursor = nil
 }
 
 func (tb *TextBuffer) FindText(query string, caseSensitive bool) []Position {
