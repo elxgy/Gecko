@@ -64,126 +64,145 @@ func (m Model) getMinibufferHeight() int {
 func (m Model) handleMinibufferInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
-		m.minibufferType = MinibufferNone
-		m.minibufferInput = ""
-		m.minibufferCursorPos = 0
-		m.searchResultsOffset = 0
-		m.textBuffer.ClearSelection()
-
+		return handleEscapeKey(m)
 	case tea.KeyEnter:
-		switch m.minibufferType {
-		case MinibufferGoToLine:
-			if line, err := strconv.Atoi(m.minibufferInput); err == nil {
-				m.textBuffer.GoToLine(line - 1)
-				m.ensureCursorVisible()
-			} else {
-				m.setMessage("Invalid line number")
-			}
+		return handleEnterKey(m)
+	case tea.KeyUp, tea.KeyDown:
+		return handleNavigationKeys(m, msg)
+	case tea.KeyBackspace, tea.KeyDelete, tea.KeyLeft, tea.KeyRight, tea.KeyHome, tea.KeyEnd:
+		return handleEditingKeys(m, msg)
+	case tea.KeyRunes:
+		return handleTextInput(m, msg)
+	}
+
+	return m, nil
+}
+
+func handleEscapeKey(m Model) (tea.Model, tea.Cmd) {
+	m.minibufferType = MinibufferNone
+	m.minibufferInput = ""
+	m.minibufferCursorPos = 0
+	m.searchResultsOffset = 0
+	m.textBuffer.ClearSelection()
+	return m, nil
+}
+
+func handleEnterKey(m Model) (tea.Model, tea.Cmd) {
+	switch m.minibufferType {
+	case MinibufferGoToLine:
+		return handleGoToLineEnter(m)
+	case MinibufferFind:
+		return handleFindEnter(m)
+	case MinibufferFindResults:
+		return handleFindResultsEnter(m)
+	}
+	return m, nil
+}
+
+func handleGoToLineEnter(m Model) (tea.Model, tea.Cmd) {
+	if line, err := strconv.Atoi(m.minibufferInput); err == nil {
+		m.textBuffer.GoToLine(line - 1)
+		m.ensureCursorVisible()
+	} else {
+		m.setMessage("Invalid line number")
+	}
+	m.minibufferType = MinibufferNone
+	m.minibufferInput = ""
+	m.minibufferCursorPos = 0
+	return m, nil
+}
+
+func handleFindEnter(m Model) (tea.Model, tea.Cmd) {
+	if m.minibufferInput != "" {
+		m.lastSearchQuery = m.minibufferInput
+		m.findResults = m.textBuffer.FindText(m.minibufferInput, false)
+		if len(m.findResults) > 0 {
+			m.findIndex = 0
+			m.searchResultsOffset = 0
+			m.minibufferType = MinibufferFindResults
+			m.jumpToCurrentResult()
+		} else {
+			m.setMessage("No matches found")
 			m.minibufferType = MinibufferNone
 			m.minibufferInput = ""
 			m.minibufferCursorPos = 0
-
-		case MinibufferFind:
-			if m.minibufferInput != "" {
-				m.lastSearchQuery = m.minibufferInput
-				m.findResults = m.textBuffer.FindText(m.minibufferInput, false)
-				if len(m.findResults) > 0 {
-					m.findIndex = 0
-					m.searchResultsOffset = 0
-					m.minibufferType = MinibufferFindResults
-					m.jumpToCurrentResult()
-				} else {
-					m.setMessage("No matches found")
-					m.minibufferType = MinibufferNone
-					m.minibufferInput = ""
-					m.minibufferCursorPos = 0
-				}
-			} else {
-				m.minibufferType = MinibufferNone
-				m.minibufferInput = ""
-				m.minibufferCursorPos = 0
-			}
-
-		case MinibufferFindResults:
-			if len(m.findResults) > 0 && m.findIndex >= 0 {
-				m.jumpToCurrentResult()
-			}
-			m.minibufferType = MinibufferNone
-			m.searchResultsOffset = 0
 		}
+	} else {
+		m.minibufferType = MinibufferNone
+		m.minibufferInput = ""
+		m.minibufferCursorPos = 0
+	}
+	return m, nil
+}
 
-	case tea.KeyUp:
-		if m.minibufferType == MinibufferFindResults {
+func handleFindResultsEnter(m Model) (tea.Model, tea.Cmd) {
+	if len(m.findResults) > 0 && m.findIndex >= 0 {
+		m.jumpToCurrentResult()
+	}
+	m.minibufferType = MinibufferNone
+	m.searchResultsOffset = 0
+	return m, nil
+}
+
+func handleNavigationKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.minibufferType == MinibufferFindResults {
+		if msg.Type == tea.KeyUp {
 			if m.findIndex > 0 {
 				m.findIndex--
-				m.adjustResultsOffset()
-				m.jumpToCurrentResult()
 			} else {
 				m.findIndex = len(m.findResults) - 1
 			}
-			m.adjustResultsOffset()
-			m.jumpToCurrentResult()
-		}
-
-	case tea.KeyDown:
-		if m.minibufferType == MinibufferFindResults {
+		} else if msg.Type == tea.KeyDown {
 			if m.findIndex < len(m.findResults)-1 {
 				m.findIndex++
-				m.adjustResultsOffset()
-				m.jumpToCurrentResult()
 			} else {
 				m.findIndex = 0
 			}
-			m.adjustResultsOffset()
-			m.jumpToCurrentResult()
 		}
+		m.adjustResultsOffset()
+		m.jumpToCurrentResult()
+	}
+	return m, nil
+}
 
-	case tea.KeyBackspace:
-		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
-			if m.minibufferCursorPos > 0 {
-				m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos-1] + m.minibufferInput[m.minibufferCursorPos:]
-				m.minibufferCursorPos--
-			}
-		}
-
-	case tea.KeyDelete:
-		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
-			if m.minibufferCursorPos < len(m.minibufferInput) {
-				m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + m.minibufferInput[m.minibufferCursorPos+1:]
-			}
-		}
-
-	case tea.KeyLeft:
-		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
-			if m.minibufferCursorPos > 0 {
-				m.minibufferCursorPos--
-			}
-		}
-
-	case tea.KeyRight:
-		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
-			if m.minibufferCursorPos < len(m.minibufferInput) {
-				m.minibufferCursorPos++
-			}
-		}
-
-	case tea.KeyHome:
-		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
-			m.minibufferCursorPos = 0
-		}
-
-	case tea.KeyEnd:
-		if m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine {
-			m.minibufferCursorPos = len(m.minibufferInput)
-		}
-	case tea.KeyRunes:
-		if (m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine) && len(msg.Runes) > 0 {
-			char := string(msg.Runes)
-			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + char + m.minibufferInput[m.minibufferCursorPos:]
-			m.minibufferCursorPos++
-		}
+func handleEditingKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.minibufferType != MinibufferFind && m.minibufferType != MinibufferGoToLine {
+		return m, nil
 	}
 
+	switch msg.Type {
+	case tea.KeyBackspace:
+		if m.minibufferCursorPos > 0 {
+			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos-1] + m.minibufferInput[m.minibufferCursorPos:]
+			m.minibufferCursorPos--
+		}
+	case tea.KeyDelete:
+		if m.minibufferCursorPos < len(m.minibufferInput) {
+			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + m.minibufferInput[m.minibufferCursorPos+1:]
+		}
+	case tea.KeyLeft:
+		if m.minibufferCursorPos > 0 {
+			m.minibufferCursorPos--
+		}
+	case tea.KeyRight:
+		if m.minibufferCursorPos < len(m.minibufferInput) {
+			m.minibufferCursorPos++
+		}
+	case tea.KeyHome:
+		m.minibufferCursorPos = 0
+	case tea.KeyEnd:
+		m.minibufferCursorPos = len(m.minibufferInput)
+	}
+
+	return m, nil
+}
+
+func handleTextInput(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if (m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine) && len(msg.Runes) > 0 {
+		char := string(msg.Runes)
+		m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + char + m.minibufferInput[m.minibufferCursorPos:]
+		m.minibufferCursorPos++
+	}
 	return m, nil
 }
 
