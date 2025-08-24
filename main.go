@@ -6,59 +6,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	statusBarStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#6f7cbf")).
-			Foreground(lipgloss.Color("230")).
-			Padding(0, 1)
-
-	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
-
-	modifiedStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#6f7cbf")).
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
-
-	editorStyle = lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color("#6f7cbf")).
-			Padding(0, 1)
-
-	lineNumberStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Width(4).
-			Align(lipgloss.Right)
-
-	selectedTextStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#a600a0")).
-				Foreground(lipgloss.Color("#f8f8f2"))
-
-	cursorLineStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#282a36"))
-
-	helpBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#6f7cbf")).
-			AlignHorizontal(lipgloss.Center).
-			Padding(1, 2).
-			Margin(1, 0)
-
-	helpTitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6f7cbf")).
-			Bold(true).
-			Underline(true)
-
-	helpKeyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#89b4fa")).
-			Bold(true)
-
-	helpDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#cdd6f4"))
-)
+// Styles are now defined in styles.go
 
 type Model struct {
 	textBuffer          *TextBuffer
@@ -121,7 +71,7 @@ func NewModel(filename string) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Millisecond*TickIntervalMs, func(t time.Time) tea.Msg {
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{}}
 	})
 }
@@ -140,5 +90,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Print("\033[2J\033[H")
+	fmt.Print(ClearScreen)
 }

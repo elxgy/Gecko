@@ -145,24 +145,11 @@ func (m *Model) centerCursorOnScreen() {
 	m.scrollOffset = targetOffset
 }
 
-func (m Model) normalizeSelection(selection *Selection) (Position, Position) {
-	if selection == nil {
-		cursor := m.textBuffer.GetCursor()
-		return cursor, cursor
-	}
 
-	start, end := selection.Start, selection.End
-
-	if start.Line > end.Line || (start.Line == end.Line && start.Column > end.Column) {
-		start, end = end, start
-	}
-
-	return start, end
-}
 
 func (m Model) saveFile() error {
 	content := m.textBuffer.GetContent()
-	return os.WriteFile(m.filename, []byte(content), 0644)
+	return os.WriteFile(m.filename, []byte(content), FilePermissions)
 }
 
 func copyToClipboard(text string) error {

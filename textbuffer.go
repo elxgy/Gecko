@@ -39,7 +39,7 @@ func NewTextBuffer(content string) *TextBuffer {
 	tb := &TextBuffer{
 		lines:      lines,
 		cursor:     Position{Line: 0, Column: 0},
-		maxHistory: 100,
+		maxHistory: MaxHistorySize,
 	}
 
 	tb.saveState()
@@ -386,29 +386,13 @@ func (tb *TextBuffer) FindText(query string, caseSensitive bool) []Position {
 }
 
 func (tb *TextBuffer) clampPosition(pos Position) Position {
-	if pos.Line < 0 {
-		pos.Line = 0
-	} else if pos.Line >= len(tb.lines) {
-		pos.Line = len(tb.lines) - 1
-	}
-
-	if line := tb.lines[pos.Line]; pos.Column > len(line) {
-		pos.Column = len(line)
-	} else if pos.Column < 0 {
-		pos.Column = 0
-	}
-
+	pos.Line = clamp(pos.Line, 0, len(tb.lines)-1)
+	pos.Column = clamp(pos.Column, 0, len(tb.lines[pos.Line]))
 	return pos
 }
 
 func (tb *TextBuffer) clampLine(line int) int {
-	if line < 0 {
-		return 0
-	}
-	if line >= len(tb.lines) {
-		return len(tb.lines) - 1
-	}
-	return line
+	return clamp(line, 0, len(tb.lines)-1)
 }
 
 func (tb *TextBuffer) normalizeSelection() (Position, Position) {
@@ -506,6 +490,37 @@ func (tb *TextBuffer) findPrevWordBoundary(pos Position) Position {
 	}
 
 	return Position{Line: pos.Line, Column: col}
+}
+
+// GetCurrentWordBounds returns the start and end positions of the word at the cursor
+func (tb *TextBuffer) GetCurrentWordBounds() (Position, Position) {
+	if tb.cursor.Line >= len(tb.lines) {
+		return tb.cursor, tb.cursor
+	}
+
+	line := tb.lines[tb.cursor.Line]
+	if len(line) == 0 || tb.cursor.Column >= len(line) {
+		return tb.cursor, tb.cursor
+	}
+
+	// If cursor is on whitespace, no word to highlight
+	if unicode.IsSpace(rune(line[tb.cursor.Column])) {
+		return tb.cursor, tb.cursor
+	}
+
+	// Find word start
+	startCol := tb.cursor.Column
+	for startCol > 0 && !unicode.IsSpace(rune(line[startCol-1])) {
+		startCol--
+	}
+
+	// Find word end
+	endCol := tb.cursor.Column
+	for endCol < len(line) && !unicode.IsSpace(rune(line[endCol])) {
+		endCol++
+	}
+
+	return Position{Line: tb.cursor.Line, Column: startCol}, Position{Line: tb.cursor.Line, Column: endCol}
 }
 
 func (tb *TextBuffer) saveState() {

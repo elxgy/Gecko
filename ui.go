@@ -19,7 +19,7 @@ func (m Model) View() string {
 			lipgloss.Center,
 			helpView,
 			lipgloss.WithWhitespaceChars(""),
-			lipgloss.WithWhitespaceForeground(lipgloss.Color("236")),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color(ColorWhitespace)),
 		)
 	}
 	return baseView
@@ -40,8 +40,10 @@ func (m Model) renderEditor() string {
 
 	content := m.renderVisibleLines(lines, startLine, endLine, cursor, selection, visibleLines)
 
-	editorContent := editorStyle.
-		Width(m.width - 2).
+	// Ensure minimum editor width to prevent UI breakage
+	editorWidth := max(m.width - 2, MinContentWidth)
+	editorContent := EditorStyle.
+		Width(editorWidth).
 		Height(visibleLines + 2).
 		Render(content)
 
@@ -56,7 +58,7 @@ func (m Model) renderVisibleLines(lines []string, startLine, endLine int, cursor
 	for i := 0; i < visibleLines; i++ {
 		actualLineIndex := startLine + i
 
-		lineNum := lineNumberStyle.Render(fmt.Sprintf("%4d", actualLineIndex+1))
+		lineNum := LineNumberStyle.Render(fmt.Sprintf("%4d", actualLineIndex+1))
 
 		renderedLine := m.getRenderedLine(lines, actualLineIndex, cursor, selection)
 
@@ -78,7 +80,7 @@ func (m Model) getRenderedLine(lines []string, lineIndex int, cursor Position, s
 	renderedLine := m.renderLineWithSelection(line, lineIndex, cursor, selection)
 
 	if lineIndex == cursor.Line {
-		renderedLine = cursorLineStyle.Render(renderedLine)
+		renderedLine = CursorLineStyle.Render(renderedLine)
 	}
 
 	return renderedLine
@@ -89,9 +91,39 @@ func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Positi
 	plainLen := len(plainLine)
 
 	if selection == nil && lineIndex == cursor.Line {
-		cursorCol := clamp(cursor.Column, 0, plainLen)
-		cursorIndex := plainToAnsiIndex(line, cursorCol)
-		return line[:cursorIndex] + "█" + line[cursorIndex:]
+		// Highlight current word if no selection
+		wordStart, wordEnd := m.textBuffer.GetCurrentWordBounds()
+		if wordStart.Line == lineIndex && wordStart.Column != wordEnd.Column {
+			// Render word highlighting
+			startIndex := plainToAnsiIndex(line, wordStart.Column)
+			endIndex := plainToAnsiIndex(line, wordEnd.Column)
+			cursorCol := clamp(cursor.Column, 0, plainLen)
+			cursorIndex := plainToAnsiIndex(line, cursorCol)
+			
+			before := line[:startIndex]
+			highlightedWord := line[startIndex:endIndex]
+			after := line[endIndex:]
+			
+			// Insert cursor within the highlighted word
+			if cursorIndex >= startIndex && cursorIndex <= endIndex {
+				relativeCursorPos := cursorIndex - startIndex
+				highlightedWithCursor := highlightedWord[:relativeCursorPos] + "█" + highlightedWord[relativeCursorPos:]
+				return before + CurrentWordStyle.Render(stripAnsiCodes(highlightedWithCursor)) + after
+			} else {
+				// Cursor outside word, render normally with cursor
+				result := before + CurrentWordStyle.Render(stripAnsiCodes(highlightedWord)) + after
+				if cursorIndex < startIndex {
+					return result[:cursorIndex] + "█" + result[cursorIndex:]
+				} else {
+					return result[:cursorIndex] + "█" + result[cursorIndex:]
+				}
+			}
+		} else {
+			// No word to highlight, just show cursor
+			cursorCol := clamp(cursor.Column, 0, plainLen)
+			cursorIndex := plainToAnsiIndex(line, cursorCol)
+			return line[:cursorIndex] + "█" + line[cursorIndex:]
+		}
 	}
 
 	selectionInfo := m.getSelectionInfo(lineIndex, selection, plainLen)
@@ -113,7 +145,7 @@ func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Positi
 	selected := line[startIndex:endIndex]
 	after := line[endIndex:]
 
-	return before + selectedTextStyle.Render(stripAnsiCodes(selected)) + after
+	return before + SelectedTextStyle.Render(stripAnsiCodes(selected)) + after
 }
 
 func (m Model) getSelectionInfo(lineIndex int, selection *Selection, plainLen int) SelectionInfo {
@@ -121,7 +153,8 @@ func (m Model) getSelectionInfo(lineIndex int, selection *Selection, plainLen in
 		return SelectionInfo{hasSelection: false}
 	}
 
-	start, end := m.normalizeSelection(selection)
+	// Use TextBuffer's normalizeSelection method
+	start, end := m.textBuffer.normalizeSelection()
 
 	if lineIndex < start.Line || lineIndex > end.Line {
 		return SelectionInfo{hasSelection: false}
@@ -163,7 +196,7 @@ func (m Model) getStatusBarFilename() string {
 	}
 
 	if m.modified {
-		return modifiedStyle.Render(filename)
+		return ModifiedStyle.Render(filename)
 	}
 	return filename
 }
@@ -184,11 +217,14 @@ func (m Model) getStatusBarRightInfo() string {
 }
 
 func (m Model) formatStatusBar(left, center, right string) string {
-	contentWidth := m.width
-
-	leftStyle := lipgloss.NewStyle().Width(contentWidth / 3).Align(lipgloss.Left).Background(lipgloss.Color("#6f7cbf"))
-	centerStyle := lipgloss.NewStyle().Width(contentWidth / 3).Align(lipgloss.Center).Background(lipgloss.Color("#6f7cbf"))
-	rightStyle := lipgloss.NewStyle().Width(contentWidth / 3).Align(lipgloss.Right).Background(lipgloss.Color("#6f7cbf"))
+	contentWidth := max(m.width, MinTerminalWidth)
+	
+	// Calculate section width with minimum constraints
+	sectionWidth := max(contentWidth / StatusBarSections, 8) // Minimum 8 chars per section
+	
+	leftStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Left).Background(lipgloss.Color(ColorPrimary))
+	centerStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Center).Background(lipgloss.Color(ColorPrimary))
+	rightStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Right).Background(lipgloss.Color(ColorPrimary))
 
 	leftRendered := leftStyle.Render(left)
 	centerRendered := centerStyle.Render(center)
@@ -196,21 +232,29 @@ func (m Model) formatStatusBar(left, center, right string) string {
 
 	statusContent := lipgloss.JoinHorizontal(lipgloss.Top, leftRendered, centerRendered, rightRendered)
 
-	return statusBarStyle.Render(statusContent)
+	return StatusBarStyle.Render(statusContent)
 }
 
 func (m Model) renderHelp() string {
-	const keyColumnWidth = 18
-	maxWidth := m.width * 40 / 100
-	if maxWidth < 50 {
-		maxWidth = 50
+	// Handle very small terminals gracefully
+	if m.width < MinTerminalWidth || m.height < MinTerminalHeight {
+		return HelpBoxStyle.Render("Terminal too small for help. Press Ctrl+H to close.")
 	}
+	
+	const keyColumnWidth = KeyColumnWidth
+	maxWidth := m.width * HelpMaxWidthPercent / 100
+	if maxWidth < HelpMinWidth {
+		maxWidth = HelpMinWidth
+	}
+	
+	// Ensure minimum content width
+	maxWidth = max(maxWidth, MinContentWidth + 10)
 
 	contentWidth := maxWidth - 3
-	descWidth := contentWidth - keyColumnWidth - 1
+	descWidth := max(contentWidth - keyColumnWidth - 1, 10) // Minimum description width
 	var help strings.Builder
 
-	title := helpTitleStyle.Render("Text Editor Help")
+	title := HelpTitleStyle.Render("Text Editor Help")
 	help.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, title))
 	help.WriteString("\n\n")
 
@@ -242,26 +286,27 @@ func (m Model) renderHelp() string {
 	}
 
 	for _, item := range helpItems {
-		key := helpKeyStyle.Render(item.key)
+		key := HelpKeyStyle.Render(item.key)
 		key = lipgloss.NewStyle().Width(keyColumnWidth).Render(key)
 
 		desc := lipgloss.NewStyle().
 			Width(descWidth).
 			MaxWidth(descWidth).
-			Render(helpDescStyle.Render(item.desc))
+			Render(HelpDescStyle.Render(item.desc))
 
 		help.WriteString(key + " " + desc + "\n")
 	}
 
 	help.WriteString("\n")
-	footer := helpStyle.Render("Press Ctrl+H again to close help")
+	footer := HelpStyle.Render("Press Ctrl+H again to close help")
 	help.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, footer))
 
-	return helpBoxStyle.Render(help.String())
+	return HelpBoxStyle.Render(help.String())
 }
 
 func (m Model) padLineToWidth(line string) string {
-	availableWidth := m.width - 4
+	// Ensure minimum available width to prevent negative padding
+	availableWidth := max(m.width - 4, MinContentWidth)
 
 	cleanLine := stripAnsiCodes(line)
 	currentLength := len(cleanLine)
@@ -269,6 +314,14 @@ func (m Model) padLineToWidth(line string) string {
 	if currentLength < availableWidth {
 		padding := strings.Repeat(" ", availableWidth-currentLength)
 		return line + padding
+	}
+
+	// Truncate line if it's too long for very small terminals
+	if currentLength > availableWidth && availableWidth < MinContentWidth*2 {
+		if availableWidth > 3 {
+			return line[:availableWidth-3] + "..."
+		}
+		return line[:availableWidth]
 	}
 
 	return line

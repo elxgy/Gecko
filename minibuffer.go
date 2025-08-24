@@ -6,34 +6,9 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	minibufferStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#44475a")).
-			Foreground(lipgloss.Color("#f8f8f2")).
-			Padding(0, 1)
-
-	minibufferPromptStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#89b4fa")).
-				Bold(true)
-
-	minibufferInputStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#f8f8f2"))
-
-	minibufferCursorStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#f8f8f2")).
-				Foreground(lipgloss.Color("#282a36"))
-
-	searchResultSelectedStyle = lipgloss.NewStyle().
-					Background(lipgloss.Color("#b889fa")).
-					Foreground(lipgloss.Color("#1e1e2e")).
-					Bold(true)
-
-	searchResultNormalStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#00ffe1"))
-)
+// Styles are now defined in styles.go
 
 type MinibufferType int
 
@@ -224,17 +199,17 @@ func (m Model) renderGoToLineMinibuffer() string {
 	var inputDisplay strings.Builder
 	for i, char := range m.minibufferInput {
 		if i == m.minibufferCursorPos {
-			inputDisplay.WriteString(minibufferCursorStyle.Render(string(char)))
+			inputDisplay.WriteString(MinibufferCursorStyle.Render(string(char)))
 		} else {
 			inputDisplay.WriteString(string(char))
 		}
 	}
 
 	if m.minibufferCursorPos >= len(m.minibufferInput) {
-		inputDisplay.WriteString(minibufferCursorStyle.Render(" "))
+		inputDisplay.WriteString(MinibufferCursorStyle.Render(" "))
 	}
 
-	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
+	content := MinibufferPromptStyle.Render(prompt) + MinibufferInputStyle.Render(inputDisplay.String())
 
 	minibufferWidth := m.width - 4
 	currentLen := len(prompt) + len(m.minibufferInput)
@@ -243,7 +218,7 @@ func (m Model) renderGoToLineMinibuffer() string {
 		content += padding
 	}
 
-	return minibufferStyle.Width(m.width - 2).Render(content)
+	return MinibufferStyle.Width(m.width - 2).Render(content)
 }
 
 func (m Model) renderFindMinibuffer() string {
@@ -252,17 +227,17 @@ func (m Model) renderFindMinibuffer() string {
 	var inputDisplay strings.Builder
 	for i, char := range m.minibufferInput {
 		if i == m.minibufferCursorPos {
-			inputDisplay.WriteString(minibufferCursorStyle.Render(string(char)))
+			inputDisplay.WriteString(MinibufferCursorStyle.Render(string(char)))
 		} else {
 			inputDisplay.WriteString(string(char))
 		}
 	}
 
 	if m.minibufferCursorPos >= len(m.minibufferInput) {
-		inputDisplay.WriteString(minibufferCursorStyle.Render(" "))
+		inputDisplay.WriteString(MinibufferCursorStyle.Render(" "))
 	}
 
-	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
+	content := MinibufferPromptStyle.Render(prompt) + MinibufferInputStyle.Render(inputDisplay.String())
 
 	minibufferWidth := m.width - 4
 	currentLen := len(prompt) + len(m.minibufferInput)
@@ -271,7 +246,7 @@ func (m Model) renderFindMinibuffer() string {
 		content += padding
 	}
 
-	return minibufferStyle.Width(m.width - 2).Render(content)
+	return MinibufferStyle.Width(m.width - 2).Render(content)
 }
 
 func (m Model) renderFindResultsMinibuffer() string {
@@ -279,7 +254,7 @@ func (m Model) renderFindResultsMinibuffer() string {
 
 	header := fmt.Sprintf("Search results for '%s' (%d matches):",
 		m.lastSearchQuery, len(m.findResults))
-	lines = append(lines, minibufferPromptStyle.Render(header))
+	lines = append(lines, MinibufferPromptStyle.Render(header))
 
 	textLines := m.textBuffer.GetLines()
 	start := m.searchResultsOffset
@@ -296,8 +271,8 @@ func (m Model) renderFindResultsMinibuffer() string {
 		if result.Line < len(textLines) {
 			line := textLines[result.Line]
 
-			contextStart := max(0, result.Column-30)
-			contextEnd := min(len(line), result.Column+len(m.lastSearchQuery)+30)
+			contextStart := max(0, result.Column-SearchContextLength)
+			contextEnd := min(len(line), result.Column+len(m.lastSearchQuery)+SearchContextLength)
 
 			linePreview = line[contextStart:contextEnd]
 
@@ -308,8 +283,8 @@ func (m Model) renderFindResultsMinibuffer() string {
 				linePreview = linePreview + "..."
 			}
 
-			if len(linePreview) > 70 {
-				linePreview = linePreview[:67] + "..."
+			if len(linePreview) > LinePreviewMaxLength {
+				linePreview = linePreview[:LinePreviewTruncate] + "..."
 			}
 
 			linePreview = strings.ReplaceAll(linePreview, "\t", "    ")
@@ -321,20 +296,20 @@ func (m Model) renderFindResultsMinibuffer() string {
 			result.Line+1, result.Column+1, linePreview)
 
 		if isSelected {
-			resultText = searchResultSelectedStyle.Render(resultText)
+			resultText = SearchResultSelectedStyle.Render(resultText)
 		} else {
-			resultText = searchResultNormalStyle.Render(resultText)
+			resultText = SearchResultNormalStyle.Render(resultText)
 		}
 
 		lines = append(lines, resultText)
 	}
 
 	hint := "Esc: cancel"
-	lines = append(lines, helpStyle.Render(hint))
+	lines = append(lines, HelpStyle.Render(hint))
 
 	content := strings.Join(lines, "\n")
 
-	return minibufferStyle.
+	return MinibufferStyle.
 		Width(m.width - 2).
 		Render(content)
 }
