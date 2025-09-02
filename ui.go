@@ -40,11 +40,13 @@ func (m Model) renderEditor() string {
 
 	content := m.renderVisibleLines(lines, startLine, endLine, cursor, selection, visibleLines)
 
-	// Ensure minimum editor width to prevent UI breakage
-	editorWidth := max(m.width - 2, MinContentWidth)
+	// Calculate responsive editor dimensions
+	editorWidth := m.calculateEditorWidth()
+	editorHeight := m.calculateEditorHeight(visibleLines)
+	
 	editorContent := EditorStyle.
 		Width(editorWidth).
-		Height(visibleLines + 2).
+		Height(editorHeight).
 		Render(content)
 
 	statusBar := m.renderStatusBar()
@@ -217,18 +219,26 @@ func (m Model) getStatusBarRightInfo() string {
 }
 
 func (m Model) formatStatusBar(left, center, right string) string {
+	// Handle very narrow terminals
+	if m.width < MinTerminalWidth {
+		return m.formatCompactStatusBar(left, center, right)
+	}
+
 	contentWidth := max(m.width, MinTerminalWidth)
 	
 	// Calculate section width with minimum constraints
 	sectionWidth := max(contentWidth / StatusBarSections, 8) // Minimum 8 chars per section
 	
+	// Adjust content if sections are too wide
+	leftTrimmed, centerTrimmed, rightTrimmed := m.adjustStatusBarSections(left, center, right, sectionWidth)
+	
 	leftStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Left).Background(lipgloss.Color(ColorPrimary))
 	centerStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Center).Background(lipgloss.Color(ColorPrimary))
 	rightStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Right).Background(lipgloss.Color(ColorPrimary))
 
-	leftRendered := leftStyle.Render(left)
-	centerRendered := centerStyle.Render(center)
-	rightRendered := rightStyle.Render(right)
+	leftRendered := leftStyle.Render(leftTrimmed)
+	centerRendered := centerStyle.Render(centerTrimmed)
+	rightRendered := rightStyle.Render(rightTrimmed)
 
 	statusContent := lipgloss.JoinHorizontal(lipgloss.Top, leftRendered, centerRendered, rightRendered)
 
@@ -305,8 +315,8 @@ func (m Model) renderHelp() string {
 }
 
 func (m Model) padLineToWidth(line string) string {
-	// Ensure minimum available width to prevent negative padding
-	availableWidth := max(m.width - 4, MinContentWidth)
+	// Calculate available width more precisely
+	availableWidth := m.calculateContentWidth()
 
 	cleanLine := stripAnsiCodes(line)
 	currentLength := len(cleanLine)
@@ -316,12 +326,19 @@ func (m Model) padLineToWidth(line string) string {
 		return line + padding
 	}
 
-	// Truncate line if it's too long for very small terminals
-	if currentLength > availableWidth && availableWidth < MinContentWidth*2 {
+	// Handle line truncation for small terminals
+	if currentLength > availableWidth {
 		if availableWidth > 3 {
-			return line[:availableWidth-3] + "..."
+			// Safely truncate with ellipsis
+			truncateAt := max(0, availableWidth-3)
+			if truncateAt < len(line) {
+				return line[:truncateAt] + "..."
+			}
 		}
-		return line[:availableWidth]
+		// Fallback for very narrow terminals
+		if availableWidth > 0 && availableWidth < len(line) {
+			return line[:availableWidth]
+		}
 	}
 
 	return line
@@ -329,9 +346,73 @@ func (m Model) padLineToWidth(line string) string {
 
 func (m Model) getVisibleLines() int {
 	minibufferHeight := m.getMinibufferHeight()
-	visibleLines := m.height - 4 - minibufferHeight
-	if visibleLines < 0 {
-		return 0
+	// Account for editor border (2), status bar (1), and padding (1)
+	reservedHeight := 4 + minibufferHeight
+	visibleLines := max(m.height - reservedHeight, 1)
+	
+	// Ensure we have at least 1 visible line even in very small terminals
+	if visibleLines < 1 {
+		return 1
 	}
 	return visibleLines
+}
+
+// calculateEditorWidth computes the responsive editor width
+func (m Model) calculateEditorWidth() int {
+	// Ensure minimum editor width, accounting for borders and padding
+	minWidth := max(MinContentWidth, MinTerminalWidth-4)
+	calculatedWidth := max(m.width-2, minWidth)
+	return calculatedWidth
+}
+
+// calculateEditorHeight computes the responsive editor height
+func (m Model) calculateEditorHeight(visibleLines int) int {
+	// Add border space (2) to visible lines
+	return max(visibleLines+2, 3)
+}
+
+// calculateContentWidth computes available width for content rendering
+func (m Model) calculateContentWidth() int {
+	// Account for editor borders (2) and line number space (estimated 4)
+	reservedWidth := 6
+	availableWidth := max(m.width-reservedWidth, MinContentWidth)
+	return availableWidth
+}
+
+
+
+// adjustStatusBarSections truncates status bar sections to fit available width
+func (m Model) adjustStatusBarSections(left, center, right string, sectionWidth int) (string, string, string) {
+	// Truncate each section to fit within sectionWidth
+	leftTrimmed := m.truncateToWidth(left, sectionWidth)
+	centerTrimmed := m.truncateToWidth(center, sectionWidth)
+	rightTrimmed := m.truncateToWidth(right, sectionWidth)
+	
+	return leftTrimmed, centerTrimmed, rightTrimmed
+}
+
+// truncateToWidth truncates text to fit within specified width
+func (m Model) truncateToWidth(text string, width int) string {
+	if len(text) <= width {
+		return text
+	}
+	
+	if width <= 3 {
+		return strings.Repeat(".", max(width, 0))
+	}
+	
+	return text[:width-3] + "..."
+}
+
+// formatCompactStatusBar creates a minimal status bar for very narrow terminals (3-section version)
+func (m Model) formatCompactStatusBar(left, center, right string) string {
+	// Show only essential info in compact format
+	compactInfo := fmt.Sprintf(" %s ", center) // Show center info (cursor position)
+	if len(compactInfo) > m.width {
+		// Fallback for extremely narrow terminals
+		return strings.Repeat(" ", max(m.width, 1))
+	}
+	
+	padding := strings.Repeat(" ", max(0, m.width-len(compactInfo)))
+	return compactInfo + padding
 }

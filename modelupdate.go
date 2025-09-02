@@ -32,10 +32,9 @@ var keyHandlers = map[string]keyHandler{
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Enforce minimum terminal size to prevent UI breakage
+		// Enforce minimum terminal dimensions to prevent UI breakage
 		m.width = max(msg.Width, MinTerminalWidth)
 		m.height = max(msg.Height, MinTerminalHeight)
-		// Ensure cursor remains visible after resize
 		m.ensureCursorVisible()
 		return m, nil
 
@@ -182,30 +181,37 @@ func handleSpecialKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cursorLine := m.textBuffer.GetCursorLine()
+	
 	switch msg.Type {
 	case tea.KeyEnter:
 		m.textBuffer.InsertText("\n")
 		m.updateModified()
+		m.markLinesDirty(cursorLine, cursorLine+1)
 		m.ensureCursorVisible()
 
 	case tea.KeyBackspace:
 		m.textBuffer.DeleteChar(true)
 		m.updateModified()
+		m.markLinesDirty(max(0, cursorLine-1), cursorLine)
 		m.ensureCursorVisible()
 
 	case tea.KeyDelete:
 		m.textBuffer.DeleteChar(false)
 		m.updateModified()
+		m.markLinesDirty(cursorLine, cursorLine+1)
 		m.ensureCursorVisible()
 
 	case tea.KeyTab:
 		m.textBuffer.InsertText("\t")
 		m.updateModified()
+		m.markLinesDirty(cursorLine, cursorLine)
 		m.ensureCursorVisible()
 
 	case tea.KeySpace:
 		m.textBuffer.InsertText(" ")
 		m.updateModified()
+		m.markLinesDirty(cursorLine, cursorLine)
 		m.ensureCursorVisible()
 
 	case tea.KeyRunes:
@@ -213,9 +219,13 @@ func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text := string(msg.Runes)
 			m.textBuffer.InsertText(text)
 			m.updateModified()
+			m.markLinesDirty(cursorLine, cursorLine)
 			m.ensureCursorVisible()
 		}
 	}
+
+	// Apply incremental highlighting for better performance
+	m.applyIncrementalHighlighting()
 
 	return m, nil
 }

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -107,21 +109,29 @@ func (m *Model) jumpToCurrentResult() {
 func (m *Model) ensureCursorVisible() {
 	cursor := m.textBuffer.GetCursor()
 	visibleLines := m.getVisibleLines()
+	totalLines := len(m.textBuffer.GetLines())
 
-	if visibleLines <= 0 {
+	// Handle edge case: no visible lines or empty buffer
+	if visibleLines <= 0 || totalLines == 0 {
 		m.scrollOffset = 0
 		return
 	}
 
-	if cursor.Line < m.scrollOffset {
-		m.scrollOffset = cursor.Line
-	} else if cursor.Line >= m.scrollOffset+visibleLines {
-		m.scrollOffset = cursor.Line - visibleLines + 1
+	// Ensure cursor line is within valid bounds
+	cursorLine := clamp(cursor.Line, 0, max(totalLines-1, 0))
+
+	// Adjust scroll offset to keep cursor visible
+	if cursorLine < m.scrollOffset {
+		// Cursor is above visible area - scroll up
+		m.scrollOffset = cursorLine
+	} else if cursorLine >= m.scrollOffset+visibleLines {
+		// Cursor is below visible area - scroll down
+		m.scrollOffset = cursorLine - visibleLines + 1
 	}
 
-	if m.scrollOffset < 0 {
-		m.scrollOffset = 0
-	}
+	// Clamp scroll offset to valid range
+	maxScrollOffset := max(totalLines-visibleLines, 0)
+	m.scrollOffset = clamp(m.scrollOffset, 0, maxScrollOffset)
 }
 
 func (m *Model) centerCursorOnScreen() {
@@ -148,20 +158,90 @@ func (m *Model) centerCursorOnScreen() {
 
 
 func (m Model) saveFile() error {
+	if m.filename == "" {
+		return fmt.Errorf("no filename specified")
+	}
+	
 	content := m.textBuffer.GetContent()
-	return os.WriteFile(m.filename, []byte(content), FilePermissions)
+	
+	// Create backup of original file if it exists
+	if _, err := os.Stat(m.filename); err == nil {
+		backupName := m.filename + ".bak"
+		if backupErr := os.Rename(m.filename, backupName); backupErr != nil {
+			// Log backup failure but continue with save
+		}
+	}
+	
+	// Write to temporary file first for atomic save
+	tempFile := m.filename + ".tmp"
+	if err := os.WriteFile(tempFile, []byte(content), FilePermissions); err != nil {
+		return fmt.Errorf("failed to write temporary file: %w", err)
+	}
+	
+	// Atomic rename
+	if err := os.Rename(tempFile, m.filename); err != nil {
+		// Clean up temp file on failure
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to save file: %w", err)
+	}
+	
+	return nil
 }
 
 func copyToClipboard(text string) error {
-	cmd := exec.Command("xclip", "-selection", "clipboard")
-	cmd.Stdin = strings.NewReader(text)
-	return cmd.Run()
+	switch runtime.GOOS {
+	case "linux":
+		// Try xclip first, then xsel as fallback
+		if err := tryClipboardCommand("xclip", []string{"-selection", "clipboard"}, text); err == nil {
+			return nil
+		}
+		if err := tryClipboardCommand("xsel", []string{"--clipboard", "--input"}, text); err == nil {
+			return nil
+		}
+		return fmt.Errorf("clipboard not available: install xclip or xsel")
+	case "darwin":
+		return tryClipboardCommand("pbcopy", []string{}, text)
+	case "windows":
+		return tryClipboardCommand("clip", []string{}, text)
+	default:
+		return fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
+	}
 }
 
 func pasteFromClipboard() (string, error) {
-	cmd := exec.Command("xclip", "-selection", "clipboard", "-o")
+	switch runtime.GOOS {
+	case "linux":
+		// Try xclip first, then xsel as fallback
+		if output, err := tryClipboardOutput("xclip", []string{"-selection", "clipboard", "-o"}); err == nil {
+			return output, nil
+		}
+		if output, err := tryClipboardOutput("xsel", []string{"--clipboard", "--output"}); err == nil {
+			return output, nil
+		}
+		return "", fmt.Errorf("clipboard not available: install xclip or xsel")
+	case "darwin":
+		return tryClipboardOutput("pbpaste", []string{})
+	case "windows":
+		// Use PowerShell for reliable clipboard access on Windows
+		return tryClipboardOutput("powershell", []string{"-command", "Get-Clipboard"})
+	default:
+		return "", fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
+	}
+}
+
+func tryClipboardCommand(command string, args []string, input string) error {
+	cmd := exec.Command(command, args...)
+	cmd.Stdin = strings.NewReader(input)
+	return cmd.Run()
+}
+
+func tryClipboardOutput(command string, args []string) (string, error) {
+	cmd := exec.Command(command, args...)
 	output, err := cmd.Output()
-	return string(output), err
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(output), "\r\n"), nil
 }
 
 func (m *Model) updateModified() {

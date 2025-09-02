@@ -33,6 +33,9 @@ type Model struct {
 	maxResultsDisplay   int
 	highlighter         *Highlighter
 	highlightedContent  []string
+	lastHighlightedHash string
+	dirtyLines          map[int]bool
+	highlightingEnabled bool
 }
 
 type SelectionInfo struct {
@@ -44,9 +47,23 @@ type SelectionInfo struct {
 func NewModel(filename string) Model {
 	var content string
 	var originalText string
+	var loadError string
 
 	if filename != "" {
-		if data, err := os.ReadFile(filename); err == nil {
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			// Handle different types of file errors
+			if os.IsNotExist(err) {
+				loadError = fmt.Sprintf("File not found: %s", filename)
+			} else if os.IsPermission(err) {
+				loadError = fmt.Sprintf("Permission denied: %s", filename)
+			} else {
+				loadError = fmt.Sprintf("Error reading file: %v", err)
+			}
+			// Create empty buffer for new file
+			content = ""
+			originalText = ""
+		} else {
 			content = string(data)
 			originalText = content
 		}
@@ -54,15 +71,22 @@ func NewModel(filename string) Model {
 
 	textBuffer := NewTextBuffer(content)
 	model := Model{
-		scrollOffset:      0,
-		textBuffer:        textBuffer,
-		filename:          filename,
-		originalText:      originalText,
-		modified:          false,
-		findResults:       []Position{},
-		findIndex:         -1,
-		maxResultsDisplay: 8,
-		highlighter:       NewHighlighter(filename),
+		scrollOffset:        0,
+		textBuffer:          textBuffer,
+		filename:            filename,
+		originalText:        originalText,
+		modified:            false,
+		findResults:         []Position{},
+		findIndex:           -1,
+		maxResultsDisplay:   8,
+		highlighter:         NewHighlighter(filename),
+		dirtyLines:          make(map[int]bool),
+		highlightingEnabled: true,
+	}
+
+	// Set load error message if there was one
+	if loadError != "" {
+		model.setMessage(loadError)
 	}
 
 	model.applySyntaxHighlighting()

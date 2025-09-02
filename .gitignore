@@ -31,3 +31,7 @@ go.work.sum
 # .idea/
 sla.md
 gecko1
+.trae/
+ui_test.go
+syntax_test.go
+textbuffer_test.go

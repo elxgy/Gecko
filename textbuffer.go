@@ -58,6 +58,10 @@ func (tb *TextBuffer) GetCursor() Position {
 	return tb.cursor
 }
 
+func (tb *TextBuffer) GetCursorLine() int {
+	return tb.cursor.Line
+}
+
 func (tb *TextBuffer) GetSelection() *Selection {
 	return tb.selection
 }
@@ -259,6 +263,9 @@ func (tb *TextBuffer) InsertText(text string) {
 	}
 
 	tb.selection = nil
+	
+	// Save the state after the insertion for redo functionality
+	tb.saveStateAfterOperation()
 }
 
 func (tb *TextBuffer) DeleteSelection() bool {
@@ -315,6 +322,9 @@ func (tb *TextBuffer) DeleteChar(backward bool) {
 
 		}
 	}
+	
+	// Save the state after the deletion for redo functionality
+	tb.saveStateAfterOperation()
 }
 
 func (tb *TextBuffer) Undo() bool {
@@ -537,6 +547,26 @@ func (tb *TextBuffer) saveState() {
 	tb.history = append(tb.history, state)
 	tb.historyIndex = len(tb.history) - 1
 
+	if len(tb.history) > tb.maxHistory {
+		tb.history = tb.history[1:]
+		tb.historyIndex--
+	}
+}
+
+// saveStateAfterOperation saves the state after an operation completes
+// This is used for redo functionality
+func (tb *TextBuffer) saveStateAfterOperation() {
+	state := TextState{
+		Lines:  make([]string, len(tb.lines)),
+		Cursor: tb.cursor,
+	}
+	copy(state.Lines, tb.lines)
+
+	// Append the "after" state to history
+	tb.history = append(tb.history, state)
+	tb.historyIndex = len(tb.history) - 1
+
+	// Keep history within bounds
 	if len(tb.history) > tb.maxHistory {
 		tb.history = tb.history[1:]
 		tb.historyIndex--
