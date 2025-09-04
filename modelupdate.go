@@ -8,19 +8,19 @@ import (
 type keyHandler func(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
 var keyHandlers = map[string]keyHandler{
-	"quit":       func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m, tea.Quit },
-	"save":       func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handleSave() },
+	"quit":       handleQuit,
+	"save":       handleSave,
 	"help":       handleHelp,
 	"goto":       handleGoToLine,
 	"find":       handleFind,
-	"findNext":   func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handleFindNext() },
-	"findPrev":   func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handleFindPrev() },
-	"copy":       func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handleCopy() },
-	"cut":        func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handleCut() },
-	"paste":      func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handlePaste() },
-	"undo":       func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handleUndo() },
-	"redo":       func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handleRedo() },
-	"selectAll":  func(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) { return m.handleSelectAll() },
+	"findNext":   handleFindNext,
+	"findPrev":   handleFindPrev,
+	"copy":       handleCopy,
+	"cut":        handleCut,
+	"paste":      handlePaste,
+	"undo":       handleUndo,
+	"redo":       handleRedo,
+	"selectAll":  handleSelectAll,
 	"shiftLeft":  handleShiftLeft,
 	"shiftRight": handleShiftRight,
 	"shiftUp":    handleShiftUp,
@@ -32,10 +32,8 @@ var keyHandlers = map[string]keyHandler{
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Enforce minimum terminal dimensions to prevent UI breakage
-		m.width = max(msg.Width, MinTerminalWidth)
-		m.height = max(msg.Height, MinTerminalHeight)
-		m.ensureCursorVisible()
+		m.width = msg.Width
+		m.height = msg.Height
 		return m, nil
 
 	case tea.KeyMsg:
@@ -181,37 +179,30 @@ func handleSpecialKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	cursorLine := m.textBuffer.GetCursorLine()
-	
 	switch msg.Type {
 	case tea.KeyEnter:
 		m.textBuffer.InsertText("\n")
 		m.updateModified()
-		m.markLinesDirty(cursorLine, cursorLine+1)
 		m.ensureCursorVisible()
 
 	case tea.KeyBackspace:
 		m.textBuffer.DeleteChar(true)
 		m.updateModified()
-		m.markLinesDirty(max(0, cursorLine-1), cursorLine)
 		m.ensureCursorVisible()
 
 	case tea.KeyDelete:
 		m.textBuffer.DeleteChar(false)
 		m.updateModified()
-		m.markLinesDirty(cursorLine, cursorLine+1)
 		m.ensureCursorVisible()
 
 	case tea.KeyTab:
 		m.textBuffer.InsertText("\t")
 		m.updateModified()
-		m.markLinesDirty(cursorLine, cursorLine)
 		m.ensureCursorVisible()
 
 	case tea.KeySpace:
 		m.textBuffer.InsertText(" ")
 		m.updateModified()
-		m.markLinesDirty(cursorLine, cursorLine)
 		m.ensureCursorVisible()
 
 	case tea.KeyRunes:
@@ -219,15 +210,19 @@ func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text := string(msg.Runes)
 			m.textBuffer.InsertText(text)
 			m.updateModified()
-			m.markLinesDirty(cursorLine, cursorLine)
 			m.ensureCursorVisible()
 		}
 	}
 
-	// Apply incremental highlighting for better performance
-	m.applyIncrementalHighlighting()
-
 	return m, nil
+}
+
+func handleQuit(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m, tea.Quit
+}
+
+func handleSave(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleSave()
 }
 
 func handleHelp(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -247,6 +242,38 @@ func handleFind(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.minibufferInput = ""
 	m.minibufferCursorPos = 0
 	return m, nil
+}
+
+func handleFindNext(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleFindNext()
+}
+
+func handleFindPrev(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleFindPrev()
+}
+
+func handleCopy(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleCopy()
+}
+
+func handleCut(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleCut()
+}
+
+func handlePaste(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handlePaste()
+}
+
+func handleUndo(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleUndo()
+}
+
+func handleRedo(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleRedo()
+}
+
+func handleSelectAll(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleSelectAll()
 }
 
 func handleShiftLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {

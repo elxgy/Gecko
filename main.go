@@ -6,9 +6,59 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
-// Styles are now defined in styles.go
+var (
+	statusBarStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#6f7cbf")).
+			Foreground(lipgloss.Color("230")).
+			Padding(0, 1)
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241"))
+
+	modifiedStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#6f7cbf")).
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+
+	editorStyle = lipgloss.NewStyle().
+			Border(lipgloss.ThickBorder()).
+			BorderForeground(lipgloss.Color("#6f7cbf")).
+			Padding(0, 1)
+
+	lineNumberStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Width(4).
+			Align(lipgloss.Right)
+
+	selectedTextStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#a600a0")).
+				Foreground(lipgloss.Color("#f8f8f2"))
+
+	cursorLineStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#282a36"))
+
+	helpBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#6f7cbf")).
+			AlignHorizontal(lipgloss.Center).
+			Padding(1, 2).
+			Margin(1, 0)
+
+	helpTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6f7cbf")).
+			Bold(true).
+			Underline(true)
+
+	helpKeyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#89b4fa")).
+			Bold(true)
+
+	helpDescStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cdd6f4"))
+)
 
 type Model struct {
 	textBuffer          *TextBuffer
@@ -33,9 +83,6 @@ type Model struct {
 	maxResultsDisplay   int
 	highlighter         *Highlighter
 	highlightedContent  []string
-	lastHighlightedHash string
-	dirtyLines          map[int]bool
-	highlightingEnabled bool
 }
 
 type SelectionInfo struct {
@@ -47,23 +94,9 @@ type SelectionInfo struct {
 func NewModel(filename string) Model {
 	var content string
 	var originalText string
-	var loadError string
 
 	if filename != "" {
-		data, err := os.ReadFile(filename)
-		if err != nil {
-			// Handle different types of file errors
-			if os.IsNotExist(err) {
-				loadError = fmt.Sprintf("File not found: %s", filename)
-			} else if os.IsPermission(err) {
-				loadError = fmt.Sprintf("Permission denied: %s", filename)
-			} else {
-				loadError = fmt.Sprintf("Error reading file: %v", err)
-			}
-			// Create empty buffer for new file
-			content = ""
-			originalText = ""
-		} else {
+		if data, err := os.ReadFile(filename); err == nil {
 			content = string(data)
 			originalText = content
 		}
@@ -71,22 +104,15 @@ func NewModel(filename string) Model {
 
 	textBuffer := NewTextBuffer(content)
 	model := Model{
-		scrollOffset:        0,
-		textBuffer:          textBuffer,
-		filename:            filename,
-		originalText:        originalText,
-		modified:            false,
-		findResults:         []Position{},
-		findIndex:           -1,
-		maxResultsDisplay:   8,
-		highlighter:         NewHighlighter(filename),
-		dirtyLines:          make(map[int]bool),
-		highlightingEnabled: true,
-	}
-
-	// Set load error message if there was one
-	if loadError != "" {
-		model.setMessage(loadError)
+		scrollOffset:      0,
+		textBuffer:        textBuffer,
+		filename:          filename,
+		originalText:      originalText,
+		modified:          false,
+		findResults:       []Position{},
+		findIndex:         -1,
+		maxResultsDisplay: 8,
+		highlighter:       NewHighlighter(filename),
 	}
 
 	model.applySyntaxHighlighting()
@@ -95,7 +121,7 @@ func NewModel(filename string) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Tick(time.Millisecond*TickIntervalMs, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{}}
 	})
 }
@@ -114,5 +140,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Print(ClearScreen)
+	fmt.Print("\033[2J\033[H")
 }
