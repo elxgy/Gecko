@@ -36,7 +36,7 @@ func plainToAnsiIndex(ansiStr string, plainIndex int) int {
 	ansiPos := 0
 	inEscape := false
 
-	for ansiPos < len(ansiStr) && plainPos < plainIndex {
+	for ansiPos < len(ansiStr) {
 		if !inEscape && ansiStr[ansiPos] == '\x1b' {
 			inEscape = true
 		}
@@ -45,10 +45,15 @@ func plainToAnsiIndex(ansiStr string, plainIndex int) int {
 			if ansiStr[ansiPos] == 'm' {
 				inEscape = false
 			}
-		} else {
-			plainPos++
+			ansiPos++
+			continue
 		}
 
+		if plainPos == plainIndex {
+			return ansiPos
+		}
+
+		plainPos++
 		ansiPos++
 	}
 
