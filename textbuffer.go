@@ -508,6 +508,26 @@ func (tb *TextBuffer) findPrevWordBoundary(pos Position) Position {
 	return Position{Line: pos.Line, Column: col}
 }
 
+func (tb *TextBuffer) GetWordBoundsAtCursor() (int, int) {
+    if tb.cursor.Line >= len(tb.lines) {
+        return -1, -1
+    }
+    plainLine := tb.lines[tb.cursor.Line]
+    col := tb.cursor.Column
+    if col >= len(plainLine) || unicode.IsSpace(rune(plainLine[col])) {
+        return -1, -1
+    }
+    start := col
+    for start > 0 && !unicode.IsSpace(rune(plainLine[start-1])) {
+        start--
+    }
+    end := col + 1
+    for end < len(plainLine) && !unicode.IsSpace(rune(plainLine[end])) {
+        end++
+    }
+    return start, end
+}
+
 func (tb *TextBuffer) saveState() {
 	if tb.historyIndex < len(tb.history)-1 {
 		tb.history = tb.history[:tb.historyIndex+1]

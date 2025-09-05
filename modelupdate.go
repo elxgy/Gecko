@@ -1,6 +1,9 @@
 package main
 
 import (
+	"strings"
+	"unicode"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -34,6 +37,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.ensureCursorVisible()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -117,32 +121,38 @@ func handleSpecialKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlLeft {
 		m.textBuffer.MoveToWordBoundary(false, false)
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 	if msg.Type == tea.KeyCtrlRight {
 		m.textBuffer.MoveToWordBoundary(true, false)
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 
 	if msg.Type == tea.KeyLeft {
 		m.textBuffer.MoveCursor(0, -1, false)
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 	if msg.Type == tea.KeyRight {
 		m.textBuffer.MoveCursor(0, 1, false)
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 	if msg.Type == tea.KeyUp {
 		m.textBuffer.MoveCursor(-1, 0, false)
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 	if msg.Type == tea.KeyDown {
 		m.textBuffer.MoveCursor(1, 0, false)
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 
@@ -150,6 +160,7 @@ func handleSpecialKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cursor := m.textBuffer.GetCursor()
 		m.textBuffer.SetCursor(Position{Line: cursor.Line, Column: 0})
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 	if msg.Type == tea.KeyEnd {
@@ -159,6 +170,7 @@ func handleSpecialKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.textBuffer.SetCursor(Position{Line: cursor.Line, Column: len(lines[cursor.Line])})
 		}
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 
@@ -166,12 +178,14 @@ func handleSpecialKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		visible := m.getVisibleLines()
 		m.textBuffer.MoveCursor(-visible, 0, false)
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 	if msg.Type == tea.KeyPgDown {
 		visible := m.getVisibleLines()
 		m.textBuffer.MoveCursor(visible, 0, false)
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 		return m, nil
 	}
 
@@ -184,33 +198,46 @@ func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.textBuffer.InsertText("\n")
 		m.updateModified()
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 
 	case tea.KeyBackspace:
 		m.textBuffer.DeleteChar(true)
 		m.updateModified()
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 
 	case tea.KeyDelete:
 		m.textBuffer.DeleteChar(false)
 		m.updateModified()
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 
 	case tea.KeyTab:
 		m.textBuffer.InsertText("\t")
 		m.updateModified()
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 
 	case tea.KeySpace:
 		m.textBuffer.InsertText(" ")
 		m.updateModified()
 		m.ensureCursorVisible()
+		m.updateWordBounds()
 
 	case tea.KeyRunes:
 		if len(msg.Runes) > 0 {
-			text := string(msg.Runes)
-			m.textBuffer.InsertText(text)
-			m.updateModified()
-			m.ensureCursorVisible()
+			var b strings.Builder
+			for _, r := range msg.Runes {
+				if unicode.IsPrint(r) && r != '\u0000' {
+					b.WriteRune(r)
+				}
+			}
+			if b.Len() > 0 {
+				m.textBuffer.InsertText(b.String())
+				m.updateModified()
+				m.ensureCursorVisible()
+				m.updateWordBounds()
+			}
 		}
 	}
 
@@ -276,38 +303,48 @@ func handleSelectAll(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleSelectAll()
 }
 
+func (m Model) updateWordBounds() {
+    m.currentWordStart, m.currentWordEnd = m.textBuffer.GetWordBoundsAtCursor()
+}
+
 func handleShiftLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveCursor(0, -1, true)
-	m.ensureCursorVisible()
-	return m, nil
+    m.textBuffer.MoveCursor(0, -1, true)
+    m.ensureCursorVisible()
+    m.updateWordBounds()
+    return m, nil
 }
 
 func handleShiftRight(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveCursor(0, 1, true)
-	m.ensureCursorVisible()
-	return m, nil
+    m.textBuffer.MoveCursor(0, 1, true)
+    m.ensureCursorVisible()
+    m.updateWordBounds()
+    return m, nil
 }
 
 func handleShiftUp(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveCursor(-1, 0, true)
-	m.ensureCursorVisible()
-	return m, nil
+    m.textBuffer.MoveCursor(-1, 0, true)
+    m.ensureCursorVisible()
+    m.updateWordBounds()
+    return m, nil
 }
 
 func handleShiftDown(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveCursor(1, 0, true)
-	m.ensureCursorVisible()
-	return m, nil
+    m.textBuffer.MoveCursor(1, 0, true)
+    m.ensureCursorVisible()
+    m.updateWordBounds()
+    return m, nil
 }
 
 func handleAltLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveToWordBoundary(false, true)
-	m.ensureCursorVisible()
-	return m, nil
+    m.textBuffer.MoveToWordBoundary(false, true)
+    m.ensureCursorVisible()
+    m.updateWordBounds()
+    return m, nil
 }
 
 func handleAltRight(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveToWordBoundary(true, true)
-	m.ensureCursorVisible()
-	return m, nil
+    m.textBuffer.MoveToWordBoundary(true, true)
+    m.ensureCursorVisible()
+    m.updateWordBounds()
+    return m, nil
 }

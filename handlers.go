@@ -5,7 +5,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (m Model) handleSave() (tea.Model, tea.Cmd) {
@@ -15,12 +14,12 @@ func (m Model) handleSave() (tea.Model, tea.Cmd) {
 			m.modified = false
 			m.originalText = m.textBuffer.GetContent()
 			m.lastSaved = time.Now()
-			m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color("#ff00b3")).Render("File saved successfully"))
+			m.setMessage(flashSuccessStyle.Render("File saved successfully"))
 		} else {
-			m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color("#800024")).Render(fmt.Sprintf("Error saving file: %v", err)))
+			m.setMessage(flashErrorStyle.Render(fmt.Sprintf("Error saving file: %v", err)))
 		}
 	} else {
-		m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color("#e3e094")).Render("No filename specified"))
+		m.setMessage(flashWarningStyle.Render("No filename specified"))
 	}
 	return m, nil
 }

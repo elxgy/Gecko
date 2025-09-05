@@ -6,34 +6,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	minibufferStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#44475a")).
-			Foreground(lipgloss.Color("#f8f8f2")).
-			Padding(0, 1)
-
-	minibufferPromptStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#89b4fa")).
-				Bold(true)
-
-	minibufferInputStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#f8f8f2"))
-
-	minibufferCursorStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#f8f8f2")).
-				Foreground(lipgloss.Color("#282a36"))
-
-	searchResultSelectedStyle = lipgloss.NewStyle().
-					Background(lipgloss.Color("#b889fa")).
-					Foreground(lipgloss.Color("#1e1e2e")).
-					Bold(true)
-
-	searchResultNormalStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#00ffe1"))
-)
 
 type MinibufferType int
 

@@ -122,6 +122,22 @@ func (m *Model) ensureCursorVisible() {
 	if m.scrollOffset < 0 {
 		m.scrollOffset = 0
 	}
+
+	// Horizontal scrolling
+	visibleContentWidth := m.width - 9 // borders 2 + padding 2 + lineNum 4 + space 1
+	if visibleContentWidth < 1 {
+		visibleContentWidth = 1
+	}
+
+	if cursor.Column < m.horizontalOffset {
+		m.horizontalOffset = cursor.Column
+	} else if cursor.Column >= m.horizontalOffset + visibleContentWidth {
+		m.horizontalOffset = cursor.Column - visibleContentWidth + 1
+	}
+
+	if m.horizontalOffset < 0 {
+		m.horizontalOffset = 0
+	}
 }
 
 func (m *Model) centerCursorOnScreen() {

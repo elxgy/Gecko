@@ -63,6 +63,7 @@ func (m *Model) applySyntaxHighlighting() {
 	content := m.textBuffer.GetContent()
 	highlighted, err := m.highlighter.Highlight(content)
 	if err == nil {
+		highlighted = strings.TrimSuffix(highlighted, "\n")
 		m.highlightedContent = strings.Split(highlighted, "\n")
 	} else {
 		m.highlightedContent = m.textBuffer.GetLines()
