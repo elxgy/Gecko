@@ -92,20 +92,21 @@ func (m Model) getRenderedLine(lines []string, lineIndex int, cursor Position, s
 }
 
 func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Position, selection *Selection) string {
-	plainLine := stripAnsiCodes(line)
-	plainLen := len(plainLine)
+	// Calculate plain text length from original line (before any additional highlighting)
+	originalPlainLine := stripAnsiCodes(line)
+	plainLen := len(originalPlainLine)
 
 	// Apply word highlight if on cursor line and valid bounds
 	if lineIndex == cursor.Line && m.currentWordStart >= 0 && m.currentWordEnd > m.currentWordStart {
 		line = m.applyWordHighlight(line, m.currentWordStart, m.currentWordEnd)
 	}
 
-	// Apply selection if present
+	// Apply selection if present - use original plain length for consistency
 	line = m.applySelection(line, lineIndex, plainLen, selection)
 
 	// Always render cursor on cursor line (visible or invisible for blinking)
 	if lineIndex == cursor.Line {
-		line = m.applyCursor(line, cursor.Column, plainLine, plainLen)
+		line = m.applyCursor(line, cursor.Column, originalPlainLine, plainLen)
 	}
 
 	return line
@@ -138,17 +139,39 @@ func (m Model) applySelection(line string, lineIndex int, plainLen int, selectio
 	if startCol > endCol {
 		startCol, endCol = endCol, startCol
 	}
-	startIndex := plainToAnsiIndex(line, startCol)
-	endIndex := plainToAnsiIndex(line, endCol)
-	before := line[:startIndex]
-	selected := line[startIndex:endIndex]
-	after := line[endIndex:]
-	line = before + selectedTextStyle.Render(selected) + after
 
 	// Handle empty selected lines to show selection background
 	if plainLen == 0 && selectionInfo.hasSelection {
-		line = selectedTextStyle.Render(" ")
+		return selectedTextStyle.Render(" ")
 	}
+
+	// Ensure selection bounds are valid
+	if startCol < 0 {
+		startCol = 0
+	}
+	if endCol > plainLen {
+		endCol = plainLen
+	}
+	if startCol >= endCol {
+		return line
+	}
+
+	startIndex := plainToAnsiIndex(line, startCol)
+	endIndex := plainToAnsiIndex(line, endCol)
+
+	// Validate byte positions
+	if startIndex < 0 || endIndex < 0 || startIndex >= len(line) || endIndex > len(line) || startIndex >= endIndex {
+		return line
+	}
+
+	before := line[:startIndex]
+	selected := line[startIndex:endIndex]
+	after := line[endIndex:]
+
+	// Strip any existing ANSI codes from the selected section before applying selection style
+	plainSelected := stripAnsiCodes(selected)
+	styledSelected := selectedTextStyle.Render(plainSelected)
+	line = before + styledSelected + after
 
 	return line
 }

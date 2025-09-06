@@ -35,3 +35,7 @@ gecko1
 ui_test.go
 syntax_test.go
 textbuffer_test.go
+OPTIMIZATION_SUMMARY.md
+debug_selection.go
+selection_fix_test.go
+selection_test.go

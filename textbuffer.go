@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -16,6 +18,7 @@ type Selection struct {
 }
 
 type TextBuffer struct {
+	mu                      sync.RWMutex
 	lines                   []string
 	cursor                  Position
 	selection               *Selection
@@ -47,34 +50,56 @@ func NewTextBuffer(content string) *TextBuffer {
 }
 
 func (tb *TextBuffer) GetContent() string {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
 	return strings.Join(tb.lines, "\n")
 }
 
 func (tb *TextBuffer) GetLines() []string {
-	return tb.lines
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	lines := make([]string, len(tb.lines))
+	copy(lines, tb.lines)
+	return lines
 }
 
 func (tb *TextBuffer) GetCursor() Position {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
 	return tb.cursor
 }
 
 func (tb *TextBuffer) GetSelection() *Selection {
-	return tb.selection
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	if tb.selection == nil {
+		return nil
+	}
+	selection := *tb.selection
+	return &selection
 }
 
 func (tb *TextBuffer) HasSelection() bool {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
 	return tb.selection != nil
 }
 
 func (tb *TextBuffer) SetSelection(selection *Selection) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	tb.selection = selection
 }
 
 func (tb *TextBuffer) ClearSelection() {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	tb.selection = nil
 }
 
 func (tb *TextBuffer) SetCursor(pos Position) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	tb.cursor = tb.clampPosition(pos)
 }
 
@@ -86,6 +111,8 @@ func (tb *TextBuffer) restoreSelectAllCursor() {
 }
 
 func (tb *TextBuffer) MoveCursor(deltaLine, deltaColumn int, extend bool) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	if !extend && tb.selectAllOriginalCursor != nil {
 		tb.restoreSelectAllCursor()
 		tb.selection = nil
@@ -125,6 +152,8 @@ func (tb *TextBuffer) MoveCursor(deltaLine, deltaColumn int, extend bool) {
 }
 
 func (tb *TextBuffer) MoveToWordBoundary(forward bool, extend bool) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	if !extend && tb.selectAllOriginalCursor != nil {
 		tb.restoreSelectAllCursor()
 		tb.selection = nil
@@ -160,6 +189,8 @@ func (tb *TextBuffer) MoveToWordBoundary(forward bool, extend bool) {
 }
 
 func (tb *TextBuffer) SelectAll() {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	tb.selectAllOriginalCursor = &Position{
 		Line:   tb.cursor.Line,
 		Column: tb.cursor.Column,
@@ -173,6 +204,8 @@ func (tb *TextBuffer) SelectAll() {
 }
 
 func (tb *TextBuffer) SelectLine() {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	if tb.cursor.Line < len(tb.lines) {
 		tb.selection = &Selection{
 			Start: Position{Line: tb.cursor.Line, Column: 0},
@@ -183,6 +216,8 @@ func (tb *TextBuffer) SelectLine() {
 }
 
 func (tb *TextBuffer) SelectWord() {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	if tb.cursor.Line >= len(tb.lines) {
 		return
 	}
@@ -198,6 +233,8 @@ func (tb *TextBuffer) SelectWord() {
 }
 
 func (tb *TextBuffer) GetSelectedText() string {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
 	if tb.selection == nil {
 		return ""
 	}
@@ -248,12 +285,21 @@ func (tb *TextBuffer) GetSelectedText() string {
 }
 
 func (tb *TextBuffer) InsertText(text string) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	tb.saveState()
 
 	tb.selectAllOriginalCursor = nil
 
 	if tb.selection != nil {
 		tb.deleteSelection()
+	}
+
+	// Ensure cursor is valid
+	tb.cursor = tb.clampPosition(tb.cursor)
+	if len(tb.lines) == 0 {
+		tb.lines = []string{""}
+		tb.cursor = Position{Line: 0, Column: 0}
 	}
 
 	lines := strings.Split(text, "\n")
@@ -288,6 +334,8 @@ func (tb *TextBuffer) InsertText(text string) {
 }
 
 func (tb *TextBuffer) DeleteSelection() bool {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	if tb.selection == nil {
 		return false
 	}
@@ -299,9 +347,12 @@ func (tb *TextBuffer) DeleteSelection() bool {
 }
 
 func (tb *TextBuffer) DeleteChar(backward bool) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	if tb.selection != nil {
-		tb.DeleteSelection()
-		tb.selection = nil
+		tb.saveState()
+		tb.selectAllOriginalCursor = nil
+		tb.deleteSelection()
 		return
 	}
 
@@ -344,6 +395,8 @@ func (tb *TextBuffer) DeleteChar(backward bool) {
 }
 
 func (tb *TextBuffer) Undo() bool {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	if tb.historyIndex > 0 {
 		tb.historyIndex--
 		state := tb.history[tb.historyIndex]
@@ -358,6 +411,8 @@ func (tb *TextBuffer) Undo() bool {
 }
 
 func (tb *TextBuffer) Redo() bool {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	if tb.historyIndex < len(tb.history)-1 {
 		tb.historyIndex++
 		state := tb.history[tb.historyIndex]
@@ -372,6 +427,8 @@ func (tb *TextBuffer) Redo() bool {
 }
 
 func (tb *TextBuffer) GoToLine(line int) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	tb.cursor = Position{
 		Line:   tb.clampLine(line),
 		Column: 0,
@@ -381,6 +438,18 @@ func (tb *TextBuffer) GoToLine(line int) {
 }
 
 func (tb *TextBuffer) FindText(query string, caseSensitive bool) []Position {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return tb.findTextWithContext(context.Background(), query, caseSensitive)
+}
+
+func (tb *TextBuffer) FindTextWithContext(ctx context.Context, query string, caseSensitive bool) []Position {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return tb.findTextWithContext(ctx, query, caseSensitive)
+}
+
+func (tb *TextBuffer) findTextWithContext(ctx context.Context, query string, caseSensitive bool) []Position {
 	var positions []Position
 
 	searchQuery := query
@@ -389,6 +458,12 @@ func (tb *TextBuffer) FindText(query string, caseSensitive bool) []Position {
 	}
 
 	for lineIdx, line := range tb.lines {
+		select {
+		case <-ctx.Done():
+			return positions
+		default:
+		}
+
 		searchLine := line
 		if !caseSensitive {
 			searchLine = strings.ToLower(line)
@@ -412,16 +487,22 @@ func (tb *TextBuffer) FindText(query string, caseSensitive bool) []Position {
 }
 
 func (tb *TextBuffer) clampPosition(pos Position) Position {
+	if len(tb.lines) == 0 {
+		return Position{Line: 0, Column: 0}
+	}
+
 	if pos.Line < 0 {
 		pos.Line = 0
 	} else if pos.Line >= len(tb.lines) {
 		pos.Line = len(tb.lines) - 1
 	}
 
-	if line := tb.lines[pos.Line]; pos.Column > len(line) {
-		pos.Column = len(line)
-	} else if pos.Column < 0 {
-		pos.Column = 0
+	if pos.Line < len(tb.lines) {
+		if line := tb.lines[pos.Line]; pos.Column > len(line) {
+			pos.Column = len(line)
+		} else if pos.Column < 0 {
+			pos.Column = 0
+		}
 	}
 
 	return pos
@@ -535,6 +616,8 @@ func (tb *TextBuffer) findPrevWordBoundary(pos Position) Position {
 }
 
 func (tb *TextBuffer) GetWordBoundsAtCursor() (int, int) {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
 	if len(tb.lines) == 0 {
 		return -1, -1
 	}
