@@ -103,11 +103,18 @@ func (tb *TextBuffer) MoveCursor(deltaLine, deltaColumn int, extend bool) {
 		}
 	}
 
-	newPos := Position{
-		Line:   tb.cursor.Line + deltaLine,
-		Column: tb.cursor.Column + deltaColumn,
+	newLine := tb.cursor.Line + deltaLine
+	newCol := tb.cursor.Column + deltaColumn
+
+	if newCol < 0 && newLine > 0 {
+		newLine--
+		newCol = len(tb.lines[newLine])
+	} else if newLine >= 0 && newLine < len(tb.lines) && newCol > len(tb.lines[newLine]) && newLine < len(tb.lines)-1 {
+		newLine++
+		newCol = 0
 	}
 
+	newPos := Position{Line: newLine, Column: newCol}
 	tb.cursor = tb.clampPosition(newPos)
 
 	if extend && tb.selection != nil {
@@ -175,12 +182,31 @@ func (tb *TextBuffer) SelectLine() {
 	}
 }
 
+func (tb *TextBuffer) SelectWord() {
+	if tb.cursor.Line >= len(tb.lines) {
+		return
+	}
+	start, end := tb.GetWordBoundsAtCursor()
+	if start == end {
+		return
+	}
+	tb.selection = &Selection{
+		Start: Position{Line: tb.cursor.Line, Column: start},
+		End:   Position{Line: tb.cursor.Line, Column: end},
+	}
+	tb.cursor.Column = end
+}
+
 func (tb *TextBuffer) GetSelectedText() string {
 	if tb.selection == nil {
 		return ""
 	}
 
 	start, end := tb.normalizeSelection()
+
+	if start.Line < 0 || start.Line >= len(tb.lines) || end.Line < 0 || end.Line >= len(tb.lines) {
+		return ""
+	}
 
 	if start.Line == end.Line {
 		line := tb.lines[start.Line]
@@ -432,14 +458,15 @@ func (tb *TextBuffer) deleteSelection() {
 
 	start, end := tb.normalizeSelection()
 
-	if start.Line == end.Line {
+	if start.Line < 0 || start.Line >= len(tb.lines) || end.Line < 0 || end.Line >= len(tb.lines) {
+		return
+	}
 
+	if start.Line == end.Line {
 		line := tb.lines[start.Line]
 		tb.lines[start.Line] = line[:start.Column] + line[end.Column:]
 		tb.cursor = start
-
 	} else {
-
 		startLine := tb.lines[start.Line][:start.Column]
 		endLine := tb.lines[end.Line][end.Column:]
 
@@ -450,7 +477,6 @@ func (tb *TextBuffer) deleteSelection() {
 
 		tb.lines = newLines
 		tb.cursor = start
-
 	}
 
 	tb.selection = nil
@@ -509,23 +535,52 @@ func (tb *TextBuffer) findPrevWordBoundary(pos Position) Position {
 }
 
 func (tb *TextBuffer) GetWordBoundsAtCursor() (int, int) {
-    if tb.cursor.Line >= len(tb.lines) {
-        return -1, -1
-    }
-    plainLine := tb.lines[tb.cursor.Line]
-    col := tb.cursor.Column
-    if col >= len(plainLine) || unicode.IsSpace(rune(plainLine[col])) {
-        return -1, -1
-    }
-    start := col
-    for start > 0 && !unicode.IsSpace(rune(plainLine[start-1])) {
-        start--
-    }
-    end := col + 1
-    for end < len(plainLine) && !unicode.IsSpace(rune(plainLine[end])) {
-        end++
-    }
-    return start, end
+	if len(tb.lines) == 0 {
+		return 0, 0
+	}
+
+	line := tb.lines[tb.cursor.Line]
+	if len(line) == 0 || tb.cursor.Column >= len(line) {
+		// If line is empty or cursor is at/beyond end, no word to highlight
+		return -1, -1
+	}
+
+	// If cursor is on whitespace, no word to highlight
+	if line[tb.cursor.Column] == ' ' || line[tb.cursor.Column] == '\t' {
+		return -1, -1
+	}
+
+	// Find word start
+	wordStart := tb.cursor.Column
+	for wordStart > 0 && !isWordBoundary(line[wordStart-1]) {
+		wordStart--
+	}
+
+	// Find word end
+	wordEnd := tb.cursor.Column
+	for wordEnd < len(line) && !isWordBoundary(line[wordEnd]) {
+		wordEnd++
+	}
+
+	// Ensure we have a valid word (not just punctuation)
+	if wordStart == wordEnd {
+		return -1, -1
+	}
+
+	return wordStart, wordEnd
+}
+
+// isWordBoundary returns true if the character is a word boundary
+func isWordBoundary(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' ||
+		ch == '.' || ch == ',' || ch == ';' || ch == ':' ||
+		ch == '!' || ch == '?' || ch == '(' || ch == ')' ||
+		ch == '[' || ch == ']' || ch == '{' || ch == '}' ||
+		ch == '<' || ch == '>' || ch == '"' || ch == '\'' ||
+		ch == '/' || ch == '\\' || ch == '|' || ch == '&' ||
+		ch == '*' || ch == '+' || ch == '-' || ch == '=' ||
+		ch == '@' || ch == '#' || ch == '$' || ch == '%' ||
+		ch == '^' || ch == '~' || ch == '`'
 }
 
 func (tb *TextBuffer) saveState() {

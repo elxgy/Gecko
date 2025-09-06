@@ -35,6 +35,8 @@ type Model struct {
 	highlightedContent  []string
 	currentWordStart    int
 	currentWordEnd      int
+	cursorVisible       bool
+	lastWordBoundsCursor Position
 }
 
 type SelectionInfo struct {
@@ -68,6 +70,7 @@ func NewModel(filename string) Model {
         highlighter:       NewHighlighter(filename),
         currentWordStart:  -1,
         currentWordEnd:    -1,
+        lastWordBoundsCursor: Position{Line: -1, Column: -1},
     }
 
     model.applySyntaxHighlighting()
@@ -76,10 +79,16 @@ func NewModel(filename string) Model {
     return model
 }
 
-func (m Model) Init() tea.Cmd {
-	return tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{}}
+type blinkMsg time.Time
+
+func blinkTick() tea.Cmd {
+	return tea.Tick(500 * time.Millisecond, func(t time.Time) tea.Msg {
+		return blinkMsg(t)
 	})
+}
+
+func (m Model) Init() tea.Cmd {
+	return blinkTick()
 }
 
 func main() {

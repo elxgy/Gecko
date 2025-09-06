@@ -25,21 +25,23 @@ var (
 	lineNumberStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
 			Width(4).
-			Align(lipgloss.Right)
+			Align(lipgloss.Right).
+			Background(lipgloss.NoColor{}) // Remove color block background
 
 	selectedTextStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#a600a0")).
-				Foreground(lipgloss.Color("#f8f8f2"))
+				Background(lipgloss.Color("#4a5568")). // Darker, more subtle highlight with better contrast
+				Foreground(lipgloss.Color("#e2e8f0"))  // Light foreground for better visibility
 
 	cursorLineStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#282a36"))
+			Background(lipgloss.Color("#2a2d3a")) // Subtle dark background for current line
 
 	wordHighlightStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#3e4451")) // Subtle background for word highlight
+				Background(lipgloss.Color("#2d3748")). // More subtle, darker background
+				Foreground(lipgloss.Color("#cbd5e0"))  // Soft light foreground for better readability
 
 	cursorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#f8f8f2")). // Consistent visible cursor
-			Background(lipgloss.Color("#282a36"))
+			Foreground(lipgloss.Color("#282a36")). // White cursor matching VS Code default
+			Background(lipgloss.Color("#ffffff"))
 
 	helpBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

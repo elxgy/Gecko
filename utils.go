@@ -32,31 +32,33 @@ func clamp(value, min, max int) int {
 }
 
 func plainToAnsiIndex(ansiStr string, plainIndex int) int {
-	plainPos := 0
-	ansiPos := 0
-	inEscape := false
-
-	for ansiPos < len(ansiStr) {
-		if !inEscape && ansiStr[ansiPos] == '\x1b' {
-			inEscape = true
-		}
-
-		if inEscape {
-			if ansiStr[ansiPos] == 'm' {
-				inEscape = false
-			}
-			ansiPos++
-			continue
-		}
-
-		if plainPos == plainIndex {
-			return ansiPos
-		}
-
-		plainPos++
-		ansiPos++
+	if plainIndex <= 0 {
+		return 0
 	}
 
+	plainPos := 0
+	ansiPos := 0
+
+	for ansiPos < len(ansiStr) {
+		if ansiPos < len(ansiStr) && ansiStr[ansiPos] == '\x1b' {
+			// Skip ANSI escape sequence
+			ansiPos++ // Skip the escape character
+			for ansiPos < len(ansiStr) && ansiStr[ansiPos] != 'm' {
+				ansiPos++
+			}
+			if ansiPos < len(ansiStr) {
+				ansiPos++ // Skip the 'm'
+			}
+		} else {
+			if plainPos == plainIndex {
+				return ansiPos
+			}
+			plainPos++
+			ansiPos++
+		}
+	}
+
+	// If we've reached the end, return the final position
 	return ansiPos
 }
 
@@ -134,10 +136,10 @@ func (m *Model) ensureCursorVisible() {
 		visibleContentWidth = 1
 	}
 
+	m.horizontalOffset = max(0, cursor.Column - visibleContentWidth/2)
+
 	if cursor.Column < m.horizontalOffset {
 		m.horizontalOffset = cursor.Column
-	} else if cursor.Column >= m.horizontalOffset + visibleContentWidth {
-		m.horizontalOffset = cursor.Column - visibleContentWidth + 1
 	}
 
 	if m.horizontalOffset < 0 {

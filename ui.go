@@ -64,6 +64,12 @@ func (m Model) renderVisibleLines(lines []string, startLine, endLine int, cursor
 		if m.horizontalOffset > 0 && len(plainLine) > m.horizontalOffset {
 			renderedLine = renderedLine[plainToAnsiIndex(renderedLine, m.horizontalOffset):]
 		}
+
+		// Apply cursor line styling only to the text content, not line numbers
+		if actualLineIndex == cursor.Line {
+			renderedLine = cursorLineStyle.Render(renderedLine)
+		}
+
 		lineContent := lineNum + " " + renderedLine
 		paddedLine := lipgloss.NewStyle().Width(innerWidth).Render(lineContent)
 		contentLines = append(contentLines, paddedLine)
@@ -80,9 +86,7 @@ func (m Model) getRenderedLine(lines []string, lineIndex int, cursor Position, s
 
 	renderedLine := m.renderLineWithSelection(line, lineIndex, cursor, selection)
 
-	if lineIndex == cursor.Line {
-		renderedLine = cursorLineStyle.Render(renderedLine)
-	}
+	// Cursor line styling is now handled in renderVisibleLines to avoid affecting line numbers
 
 	return renderedLine
 }
@@ -93,57 +97,96 @@ func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Positi
 
 	// Apply word highlight if on cursor line and valid bounds
 	if lineIndex == cursor.Line && m.currentWordStart >= 0 && m.currentWordEnd > m.currentWordStart {
-		startCol := clamp(m.currentWordStart, 0, plainLen)
-		endCol := clamp(m.currentWordEnd, 0, plainLen)
-		if startCol < endCol {
-			startIndex := plainToAnsiIndex(line, startCol)
-			endIndex := plainToAnsiIndex(line, endCol)
-			before := line[:startIndex]
-			word := line[startIndex:endIndex]
-			after := line[endIndex:]
-			line = before + wordHighlightStyle.Render(word) + after
-		}
+		line = m.applyWordHighlight(line, m.currentWordStart, m.currentWordEnd)
 	}
 
 	// Apply selection if present
-	selectionInfo := m.getSelectionInfo(lineIndex, selection, plainLen)
-	if selectionInfo.hasSelection {
-		startCol := selectionInfo.startCol
-		endCol := selectionInfo.endCol
-		if startCol > endCol {
-			startCol, endCol = endCol, startCol
-		}
-		startIndex := plainToAnsiIndex(line, startCol)
-		endIndex := plainToAnsiIndex(line, endCol)
-		before := line[:startIndex]
-		selected := line[startIndex:endIndex]
-		after := line[endIndex:]
-		line = before + selectedTextStyle.Render(selected) + after
-	}
+	line = m.applySelection(line, lineIndex, plainLen, selection)
 
-	// Always render cursor on cursor line
+	// Always render cursor on cursor line (visible or invisible for blinking)
 	if lineIndex == cursor.Line {
-		cursorCol := clamp(cursor.Column, 0, plainLen)
-		cursorIndex := plainToAnsiIndex(line, cursorCol)
-		var charLen int
-		var cursorCharPlain string
-		if cursorCol < plainLen {
-			r := rune(plainLine[cursorCol])
-			charEndIndex := plainToAnsiIndex(line, cursorCol+1)
-			charLen = charEndIndex - cursorIndex
-			cursorCharPlain = string(r)
-		} else {
-			cursorIndex = len(line)
-			charLen = 0
-			cursorCharPlain = " "
-		}
-		cursorStart := "\x1b[47;30m"
-		cursorReset := "\x1b[49;39m"
-		styledCursor := cursorStart + cursorCharPlain + cursorReset
-		line = line[:cursorIndex] + styledCursor + line[cursorIndex+charLen:]
+		line = m.applyCursor(line, cursor.Column, plainLine, plainLen)
 	}
 
 	return line
+}
+
+func (m Model) applyWordHighlight(highlighted string, start, end int) string {
+	// Check for invalid bounds (returned when no word should be highlighted)
+	if start == -1 || end == -1 || start < 0 || end < 0 || start >= end {
+		return highlighted
+	}
+	startByte := plainToAnsiIndex(highlighted, start)
+	endByte := plainToAnsiIndex(highlighted, end)
+	if startByte >= endByte {
+		return highlighted
+	}
+	prefix := highlighted[:startByte]
+	middle := highlighted[startByte:endByte]
+	suffix := highlighted[endByte:]
+	styledMiddle := wordHighlightStyle.Render(middle)
+	return prefix + styledMiddle + suffix
+}
+
+func (m Model) applySelection(line string, lineIndex int, plainLen int, selection *Selection) string {
+	selectionInfo := m.getSelectionInfo(lineIndex, selection, plainLen)
+	if !selectionInfo.hasSelection {
+		return line
+	}
+	startCol := selectionInfo.startCol
+	endCol := selectionInfo.endCol
+	if startCol > endCol {
+		startCol, endCol = endCol, startCol
+	}
+	startIndex := plainToAnsiIndex(line, startCol)
+	endIndex := plainToAnsiIndex(line, endCol)
+	before := line[:startIndex]
+	selected := line[startIndex:endIndex]
+	after := line[endIndex:]
+	line = before + selectedTextStyle.Render(selected) + after
+
+	// Handle empty selected lines to show selection background
+	if plainLen == 0 && selectionInfo.hasSelection {
+		line = selectedTextStyle.Render(" ")
+	}
+
+	return line
+}
+
+func (m Model) applyCursor(line string, cursorCol int, plainLine string, plainLen int) string {
+	cursorCol = clamp(cursorCol, 0, plainLen)
+	cursorIndex := plainToAnsiIndex(line, cursorCol)
+	var charLen int
+	var cursorCharPlain string
+	if cursorCol < plainLen {
+		r := rune(plainLine[cursorCol])
+		charEndIndex := plainToAnsiIndex(line, cursorCol+1)
+		charLen = charEndIndex - cursorIndex
+		cursorCharPlain = string(r)
+	} else {
+		cursorIndex = len(line)
+		charLen = 0
+		cursorCharPlain = " "
+	}
+	
+	// Apply cursor styling based on visibility state
+	var styledCursor string
+	if m.cursorVisible {
+		// Visible cursor with full styling
+		styledCursor = cursorStyle.Render(cursorCharPlain)
+	} else {
+		// Invisible cursor - preserve the original styled character to maintain dimensions
+		// This keeps word highlighting and other styling intact during blink
+		if cursorCol < plainLen {
+			// Return the original character segment with all its existing styling preserved
+			styledCursor = line[cursorIndex:cursorIndex+charLen]
+		} else {
+			// For end-of-line cursor, use a space to maintain consistent width
+			styledCursor = " "
+		}
+	}
+	
+	return line[:cursorIndex] + styledCursor + line[cursorIndex+charLen:]
 }
 
 func (m Model) getSelectionInfo(lineIndex int, selection *Selection, plainLen int) SelectionInfo {
