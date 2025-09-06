@@ -172,19 +172,19 @@ func (m Model) applyCursor(line string, cursorCol int, plainLine string, plainLe
 	// Apply cursor styling based on visibility state
 	var styledCursor string
 	if m.cursorVisible {
-		// Visible cursor with full styling
-		styledCursor = cursorStyle.Render(cursorCharPlain)
+	// Visible cursor with full styling
+	styledCursor = cursorStyle.Render(cursorCharPlain)
+} else {
+	// Invisible cursor - preserve the original styled character to maintain dimensions
+	// This keeps word highlighting and other styling intact during blink
+	if cursorCol < plainLen {
+		// Return the original character segment with all its existing styling preserved
+		styledCursor = line[cursorIndex:cursorIndex+charLen]
 	} else {
-		// Invisible cursor - preserve the original styled character to maintain dimensions
-		// This keeps word highlighting and other styling intact during blink
-		if cursorCol < plainLen {
-			// Return the original character segment with all its existing styling preserved
-			styledCursor = line[cursorIndex:cursorIndex+charLen]
-		} else {
-			// For end-of-line cursor, use a space to maintain consistent width
-			styledCursor = " "
-		}
+		// Don't add extra space when invisible to enable proper blinking by disappearance
+		styledCursor = ""
 	}
+}
 	
 	return line[:cursorIndex] + styledCursor + line[cursorIndex+charLen:]
 }

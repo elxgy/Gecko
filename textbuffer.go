@@ -536,7 +536,7 @@ func (tb *TextBuffer) findPrevWordBoundary(pos Position) Position {
 
 func (tb *TextBuffer) GetWordBoundsAtCursor() (int, int) {
 	if len(tb.lines) == 0 {
-		return 0, 0
+		return -1, -1
 	}
 
 	line := tb.lines[tb.cursor.Line]
@@ -545,8 +545,8 @@ func (tb *TextBuffer) GetWordBoundsAtCursor() (int, int) {
 		return -1, -1
 	}
 
-	// If cursor is on whitespace, no word to highlight
-	if line[tb.cursor.Column] == ' ' || line[tb.cursor.Column] == '\t' {
+	// If cursor is on whitespace or boundary character, no word to highlight
+	if line[tb.cursor.Column] == ' ' || line[tb.cursor.Column] == '	' || isWordBoundary(line[tb.cursor.Column]) {
 		return -1, -1
 	}
 
