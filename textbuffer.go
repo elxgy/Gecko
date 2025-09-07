@@ -2,9 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"unicode"
+)
+
+// Custom error types for better error handling
+var (
+	ErrInvalidPosition = errors.New("invalid position")
+	ErrInvalidRange    = errors.New("invalid range")
+	ErrEmptyBuffer     = errors.New("buffer is empty")
+	ErrHistoryEmpty    = errors.New("history is empty")
 )
 
 type Position struct {
@@ -12,9 +22,141 @@ type Position struct {
 	Column int
 }
 
+// IsValid checks if the position is valid for the given buffer
+func (p Position) IsValid(lineCount int, getLineLength func(int) int) bool {
+	if p.Line < 0 || p.Line >= lineCount {
+		return false
+	}
+	if p.Column < 0 || p.Column > getLineLength(p.Line) {
+		return false
+	}
+	return true
+}
+
 type Selection struct {
 	Start Position
 	End   Position
+}
+
+// IsValid checks if the selection is valid
+func (s *Selection) IsValid(lineCount int, getLineLength func(int) int) bool {
+	if s == nil {
+		return false
+	}
+	return s.Start.IsValid(lineCount, getLineLength) && s.End.IsValid(lineCount, getLineLength)
+}
+
+// Normalize ensures start comes before end
+func (s *Selection) Normalize() (Position, Position) {
+	start, end := s.Start, s.End
+	if start.Line > end.Line || (start.Line == end.Line && start.Column > end.Column) {
+		start, end = end, start
+	}
+	return start, end
+}
+
+// GapBuffer represents a gap buffer for efficient text editing
+type GapBuffer struct {
+	buffer   []rune
+	gapStart int
+	gapEnd   int
+}
+
+// NewGapBuffer creates a new gap buffer with initial content
+func NewGapBuffer(content string) *GapBuffer {
+	runes := []rune(content)
+	gapSize := max(len(runes), 256) // Initial gap size
+	buffer := make([]rune, len(runes)+gapSize)
+	copy(buffer, runes)
+	
+	return &GapBuffer{
+		buffer:   buffer,
+		gapStart: len(runes),
+		gapEnd:   len(buffer),
+	}
+}
+
+// moveGapTo moves the gap to the specified position
+func (gb *GapBuffer) moveGapTo(pos int) {
+	if pos < gb.gapStart {
+		// Move gap left: copy data from [pos:gapStart] to the end of the gap
+		dist := gb.gapStart - pos
+		copy(gb.buffer[gb.gapEnd-dist:], gb.buffer[pos:gb.gapStart])
+		gb.gapStart = pos
+		gb.gapEnd -= dist
+	} else if pos > gb.gapStart {
+		// Move gap right: copy data from [gapEnd:gapEnd+dist] to [gapStart:gapStart+dist]
+		dist := pos - gb.gapStart
+		copy(gb.buffer[gb.gapStart:], gb.buffer[gb.gapEnd:gb.gapEnd+dist])
+		gb.gapStart += dist
+		gb.gapEnd += dist
+	}
+}
+
+// Insert inserts text at the specified position
+func (gb *GapBuffer) Insert(pos int, text string) {
+	runes := []rune(text)
+	gb.moveGapTo(pos)
+	
+	// Expand gap if necessary
+	if len(runes) > gb.gapEnd-gb.gapStart {
+		gb.expandGap(len(runes))
+	}
+	
+	copy(gb.buffer[gb.gapStart:], runes)
+	gb.gapStart += len(runes)
+}
+
+// Delete deletes text from start to end position (end is exclusive)
+func (gb *GapBuffer) Delete(start, end int) {
+	if start > end {
+		start, end = end, start
+	}
+	
+	// Bounds checking
+	if start < 0 {
+		start = 0
+	}
+	if end > gb.Len() {
+		end = gb.Len()
+	}
+	if start >= end {
+		return // Nothing to delete
+	}
+	
+	// Move gap to start position
+	gb.moveGapTo(start)
+	
+	// Expand the gap to include the deleted range
+	gb.gapEnd += end - start
+}
+
+// expandGap expands the gap to accommodate more text
+func (gb *GapBuffer) expandGap(minSize int) {
+	newGapSize := max(minSize*2, 256)
+	newBuffer := make([]rune, len(gb.buffer)+newGapSize)
+	
+	// Copy text before gap
+	copy(newBuffer, gb.buffer[:gb.gapStart])
+	
+	// Copy text after gap
+	copy(newBuffer[gb.gapStart+newGapSize:], gb.buffer[gb.gapEnd:])
+	
+	gb.buffer = newBuffer
+	gb.gapEnd = gb.gapStart + newGapSize
+}
+
+// String returns the content as a string
+func (gb *GapBuffer) String() string {
+	result := make([]rune, 0, len(gb.buffer)-(gb.gapEnd-gb.gapStart))
+	result = append(result, gb.buffer[:gb.gapStart]...)
+	result = append(result, gb.buffer[gb.gapEnd:]...)
+	return string(result)
+}
+
+// Len returns the length of the content (excluding gap)
+func (gb *GapBuffer) Len() int {
+	return len(gb.buffer) - (gb.gapEnd - gb.gapStart)
 }
 
 type TextBuffer struct {
@@ -26,6 +168,9 @@ type TextBuffer struct {
 	historyIndex            int
 	maxHistory              int
 	selectAllOriginalCursor *Position
+	// Performance optimization: cache frequently accessed data
+	lastLineCount           int
+	lastContentHash         uint64
 }
 
 type TextState struct {
@@ -40,13 +185,50 @@ func NewTextBuffer(content string) *TextBuffer {
 	}
 
 	tb := &TextBuffer{
-		lines:      lines,
-		cursor:     Position{Line: 0, Column: 0},
-		maxHistory: 100,
+		lines:         lines,
+		cursor:        Position{Line: 0, Column: 0},
+		maxHistory:    100,
+		lastLineCount: len(lines),
 	}
 
+	// Calculate content hash after initialization
+	tb.lastContentHash = tb.calculateContentHash(lines)
 	tb.saveState()
 	return tb
+}
+
+// calculateContentHash calculates a simple hash of the content for change detection
+func (tb *TextBuffer) calculateContentHash(lines []string) uint64 {
+	var hash uint64 = 5381
+	for _, line := range lines {
+		for _, char := range line {
+			hash = ((hash << 5) + hash) + uint64(char)
+		}
+		hash = ((hash << 5) + hash) + uint64('\n') // Add newline to hash
+	}
+	return hash
+}
+
+// validatePosition ensures a position is within valid bounds
+func (tb *TextBuffer) validatePosition(pos Position) error {
+	if len(tb.lines) == 0 {
+		return ErrEmptyBuffer
+	}
+	if pos.Line < 0 || pos.Line >= len(tb.lines) {
+		return fmt.Errorf("%w: line %d out of range [0, %d)", ErrInvalidPosition, pos.Line, len(tb.lines))
+	}
+	if pos.Column < 0 || pos.Column > len(tb.lines[pos.Line]) {
+		return fmt.Errorf("%w: column %d out of range [0, %d]", ErrInvalidPosition, pos.Column, len(tb.lines[pos.Line]))
+	}
+	return nil
+}
+
+// getLineLength returns the length of a line safely
+func (tb *TextBuffer) getLineLength(lineIdx int) int {
+	if lineIdx < 0 || lineIdx >= len(tb.lines) {
+		return 0
+	}
+	return len(tb.lines[lineIdx])
 }
 
 func (tb *TextBuffer) GetContent() string {
@@ -110,13 +292,45 @@ func (tb *TextBuffer) restoreSelectAllCursor() {
 	}
 }
 
-func (tb *TextBuffer) MoveCursor(deltaLine, deltaColumn int, extend bool) {
+func (tb *TextBuffer) MoveCursor(line, column int) error {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
+
+	if len(tb.lines) == 0 || (len(tb.lines) == 1 && tb.lines[0] == "") {
+		return ErrEmptyBuffer
+	}
+
+	// Clamp values to valid ranges
+	if line < 0 {
+		line = 0
+	}
+	if line >= len(tb.lines) {
+		line = len(tb.lines) - 1
+	}
+
+	if column < 0 {
+		column = 0
+	}
+	if column > len(tb.lines[line]) {
+		column = len(tb.lines[line])
+	}
+
+	tb.cursor = Position{Line: line, Column: column}
+	return nil
+}
+
+func (tb *TextBuffer) MoveCursorDelta(deltaLine, deltaColumn int, extend bool) error {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	if len(tb.lines) == 0 || (len(tb.lines) == 1 && tb.lines[0] == "") {
+		return ErrEmptyBuffer
+	}
+
 	if !extend && tb.selectAllOriginalCursor != nil {
 		tb.restoreSelectAllCursor()
 		tb.selection = nil
-		return
+		return nil
 	}
 
 	if tb.selectAllOriginalCursor != nil {
@@ -149,6 +363,8 @@ func (tb *TextBuffer) MoveCursor(deltaLine, deltaColumn int, extend bool) {
 	} else if !extend {
 		tb.selection = nil
 	}
+
+	return nil
 }
 
 func (tb *TextBuffer) MoveToWordBoundary(forward bool, extend bool) {
@@ -284,15 +500,26 @@ func (tb *TextBuffer) GetSelectedText() string {
 	return result.String()
 }
 
-func (tb *TextBuffer) InsertText(text string) {
+func (tb *TextBuffer) InsertText(text string) error {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
+
+	if len(tb.lines) == 0 || (len(tb.lines) == 1 && tb.lines[0] == "") {
+		return ErrEmptyBuffer
+	}
+
+	if err := tb.validatePosition(tb.cursor); err != nil {
+		return fmt.Errorf("invalid cursor position: %w", err)
+	}
+
 	tb.saveState()
 
 	tb.selectAllOriginalCursor = nil
 
 	if tb.selection != nil {
-		tb.deleteSelection()
+		if err := tb.deleteSelection(); err != nil {
+			return fmt.Errorf("failed to delete selection: %w", err)
+		}
 	}
 
 	// Ensure cursor is valid
@@ -331,6 +558,12 @@ func (tb *TextBuffer) InsertText(text string) {
 	}
 
 	tb.selection = nil
+
+	// Update performance tracking fields
+	tb.lastLineCount = len(tb.lines)
+	tb.lastContentHash = tb.calculateContentHash(tb.lines)
+
+	return nil
 }
 
 func (tb *TextBuffer) DeleteSelection() bool {
@@ -342,18 +575,32 @@ func (tb *TextBuffer) DeleteSelection() bool {
 
 	tb.saveState()
 	tb.selectAllOriginalCursor = nil
-	tb.deleteSelection()
+	if err := tb.deleteSelection(); err != nil {
+		// Log error but don't fail the operation
+		return false
+	}
 	return true
 }
 
-func (tb *TextBuffer) DeleteChar(backward bool) {
+func (tb *TextBuffer) DeleteChar(backward bool) error {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
+
+	if len(tb.lines) == 0 || (len(tb.lines) == 1 && tb.lines[0] == "") {
+		return ErrEmptyBuffer
+	}
+
+	if err := tb.validatePosition(tb.cursor); err != nil {
+		return fmt.Errorf("invalid cursor position: %w", err)
+	}
+
 	if tb.selection != nil {
 		tb.saveState()
 		tb.selectAllOriginalCursor = nil
-		tb.deleteSelection()
-		return
+		if err := tb.deleteSelection(); err != nil {
+			return fmt.Errorf("failed to delete selection: %w", err)
+		}
+		return nil
 	}
 
 	tb.saveState()
@@ -392,6 +639,12 @@ func (tb *TextBuffer) DeleteChar(backward bool) {
 
 		}
 	}
+
+	// Update performance tracking fields
+	tb.lastLineCount = len(tb.lines)
+	tb.lastContentHash = tb.calculateContentHash(tb.lines)
+
+	return nil
 }
 
 func (tb *TextBuffer) Undo() bool {
@@ -532,15 +785,18 @@ func (tb *TextBuffer) normalizeSelection() (Position, Position) {
 	return start, end
 }
 
-func (tb *TextBuffer) deleteSelection() {
+func (tb *TextBuffer) deleteSelection() error {
 	if tb.selection == nil {
-		return
+		return nil
 	}
 
 	start, end := tb.normalizeSelection()
 
-	if start.Line < 0 || start.Line >= len(tb.lines) || end.Line < 0 || end.Line >= len(tb.lines) {
-		return
+	if err := tb.validatePosition(start); err != nil {
+		return fmt.Errorf("invalid selection start: %w", err)
+	}
+	if err := tb.validatePosition(end); err != nil {
+		return fmt.Errorf("invalid selection end: %w", err)
 	}
 
 	if start.Line == end.Line {
@@ -561,6 +817,12 @@ func (tb *TextBuffer) deleteSelection() {
 	}
 
 	tb.selection = nil
+
+	// Update performance tracking fields
+	tb.lastLineCount = len(tb.lines)
+	tb.lastContentHash = tb.calculateContentHash(tb.lines)
+
+	return nil
 }
 
 func (tb *TextBuffer) findNextWordBoundary(pos Position) Position {

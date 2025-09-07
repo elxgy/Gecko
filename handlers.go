@@ -58,11 +58,17 @@ func (m Model) handleCut() (tea.Model, tea.Cmd) {
 
 func (m Model) handlePaste() (tea.Model, tea.Cmd) {
 	if text, err := pasteFromClipboard(); err == nil && text != "" {
-		m.textBuffer.InsertText(text)
+		if err := m.textBuffer.InsertText(text); err != nil {
+			m.setMessage("Error pasting text")
+			return m, nil
+		}
 		m.updateModified()
 		m.setMessage("Pasted from system clipboard")
 	} else if m.clipboard != "" {
-		m.textBuffer.InsertText(m.clipboard)
+		if err := m.textBuffer.InsertText(m.clipboard); err != nil {
+			m.setMessage("Error pasting text")
+			return m, nil
+		}
 		m.updateModified()
 		m.setMessage("Pasted from internal clipboard")
 	} else {

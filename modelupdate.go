@@ -138,18 +138,25 @@ func handleSpecialKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func handleArrowKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var err error
 	switch msg.Type {
 	case tea.KeyLeft:
-		m.textBuffer.MoveCursor(0, -1, false)
+		err = m.textBuffer.MoveCursorDelta(0, -1, false)
 	case tea.KeyRight:
-		m.textBuffer.MoveCursor(0, 1, false)
+		err = m.textBuffer.MoveCursorDelta(0, 1, false)
 	case tea.KeyUp:
-		m.textBuffer.MoveCursor(-1, 0, false)
+		err = m.textBuffer.MoveCursorDelta(-1, 0, false)
 	case tea.KeyDown:
-		m.textBuffer.MoveCursor(1, 0, false)
+		err = m.textBuffer.MoveCursorDelta(1, 0, false)
 	default:
 		return handleHomeEndKeys(m, msg)
 	}
+	
+	if err != nil {
+		// Silently handle errors to maintain UI responsiveness
+		return m, nil
+	}
+	
 	m.postMovementUpdate()
 	return m, nil
 }
@@ -174,14 +181,21 @@ func handleHomeEndKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func handlePageKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	visible := m.getVisibleLines()
+	var err error
 	switch msg.Type {
 	case tea.KeyPgUp:
-		m.textBuffer.MoveCursor(-visible, 0, false)
+		err = m.textBuffer.MoveCursorDelta(-visible, 0, false)
 	case tea.KeyPgDown:
-		m.textBuffer.MoveCursor(visible, 0, false)
+		err = m.textBuffer.MoveCursorDelta(visible, 0, false)
 	default:
 		return handleTextModification(m, msg)
 	}
+	
+	if err != nil {
+		// Silently handle errors to maintain UI responsiveness
+		return m, nil
+	}
+	
 	m.postMovementUpdate()
 	return m, nil
 }
@@ -192,17 +206,18 @@ func (m *Model) postMovementUpdate() {
 }
 
 func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var err error
 	switch msg.Type {
 	case tea.KeyEnter:
-		m.textBuffer.InsertText("\n")
+		err = m.textBuffer.InsertText("\n")
 	case tea.KeyBackspace:
-		m.textBuffer.DeleteChar(true)
+		err = m.textBuffer.DeleteChar(true)
 	case tea.KeyDelete:
-		m.textBuffer.DeleteChar(false)
+		err = m.textBuffer.DeleteChar(false)
 	case tea.KeyTab:
-		m.textBuffer.InsertText("\t")
+		err = m.textBuffer.InsertText("\t")
 	case tea.KeySpace:
-		m.textBuffer.InsertText(" ")
+		err = m.textBuffer.InsertText(" ")
 	case tea.KeyRunes:
 		if len(msg.Runes) > 0 {
 			var b strings.Builder
@@ -212,12 +227,20 @@ func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if b.Len() > 0 {
-				m.textBuffer.InsertText(b.String())
+				err = m.textBuffer.InsertText(b.String())
 			}
 		}
 	default:
 		return m, nil
 	}
+	
+	// Handle any errors from TextBuffer operations
+	if err != nil {
+		// For now, we'll silently ignore errors to maintain UI responsiveness
+		// In a production system, you might want to log these or show user feedback
+		return m, nil
+	}
+	
 	m.updateModified()
 	m.postMovementUpdate()
 	return m, nil
@@ -292,7 +315,9 @@ func (m *Model) updateWordBounds() {
 }
 
 func handleShiftLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-    m.textBuffer.MoveCursor(0, -1, true)
+    if err := m.textBuffer.MoveCursorDelta(0, -1, true); err != nil {
+        return m, nil
+    }
     m.postMovementUpdate()
     selText := m.textBuffer.GetSelectedText()
     m.message = fmt.Sprintf("Selected %d characters", len(selText))
@@ -301,7 +326,9 @@ func handleShiftLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func handleShiftRight(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-    m.textBuffer.MoveCursor(0, 1, true)
+    if err := m.textBuffer.MoveCursorDelta(0, 1, true); err != nil {
+        return m, nil
+    }
     m.postMovementUpdate()
     selText := m.textBuffer.GetSelectedText()
     m.message = fmt.Sprintf("Selected %d characters", len(selText))
@@ -310,7 +337,9 @@ func handleShiftRight(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func handleShiftUp(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-    m.textBuffer.MoveCursor(-1, 0, true)
+    if err := m.textBuffer.MoveCursorDelta(-1, 0, true); err != nil {
+        return m, nil
+    }
     m.postMovementUpdate()
     selText := m.textBuffer.GetSelectedText()
     m.message = fmt.Sprintf("Selected %d characters", len(selText))
@@ -319,7 +348,9 @@ func handleShiftUp(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func handleShiftDown(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-    m.textBuffer.MoveCursor(1, 0, true)
+    if err := m.textBuffer.MoveCursorDelta(1, 0, true); err != nil {
+        return m, nil
+    }
     m.postMovementUpdate()
     selText := m.textBuffer.GetSelectedText()
     m.message = fmt.Sprintf("Selected %d characters", len(selText))
