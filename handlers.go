@@ -2,11 +2,9 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (m Model) handleSave() (tea.Model, tea.Cmd) {
@@ -16,12 +14,12 @@ func (m Model) handleSave() (tea.Model, tea.Cmd) {
 			m.modified = false
 			m.originalText = m.textBuffer.GetContent()
 			m.lastSaved = time.Now()
-			m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color(ColorSuccess)).Render("File saved successfully"))
+			m.setMessage(flashSuccessStyle.Render("File saved successfully"))
 		} else {
-			m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color(ColorError)).Render(fmt.Sprintf("Error saving file: %v", err)))
+			m.setMessage(flashErrorStyle.Render(fmt.Sprintf("Error saving file: %v", err)))
 		}
 	} else {
-		m.setMessage(lipgloss.NewStyle().Foreground(lipgloss.Color(ColorWarning)).Render("No filename specified"))
+		m.setMessage(flashWarningStyle.Render("No filename specified"))
 	}
 	return m, nil
 }
@@ -59,22 +57,19 @@ func (m Model) handleCut() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handlePaste() (tea.Model, tea.Cmd) {
-	cursorLine := m.textBuffer.GetCursorLine()
 	if text, err := pasteFromClipboard(); err == nil && text != "" {
-		m.textBuffer.InsertText(text)
+		if err := m.textBuffer.InsertText(text); err != nil {
+			m.setMessage("Error pasting text")
+			return m, nil
+		}
 		m.updateModified()
-		// Mark lines dirty based on pasted content
-		newLines := len(strings.Split(text, "\n")) - 1
-		m.markLinesDirty(cursorLine, cursorLine+newLines)
-		m.applyIncrementalHighlighting()
 		m.setMessage("Pasted from system clipboard")
 	} else if m.clipboard != "" {
-		m.textBuffer.InsertText(m.clipboard)
+		if err := m.textBuffer.InsertText(m.clipboard); err != nil {
+			m.setMessage("Error pasting text")
+			return m, nil
+		}
 		m.updateModified()
-		// Mark lines dirty based on pasted content
-		newLines := len(strings.Split(m.clipboard, "\n")) - 1
-		m.markLinesDirty(cursorLine, cursorLine+newLines)
-		m.applyIncrementalHighlighting()
 		m.setMessage("Pasted from internal clipboard")
 	} else {
 		m.setMessage("Nothing to paste")
@@ -86,8 +81,6 @@ func (m Model) handleUndo() (tea.Model, tea.Cmd) {
 	if m.textBuffer.Undo() {
 		m.updateModified()
 		m.ensureCursorVisible()
-		// Re-highlight everything after undo since we don't know what changed
-		m.applySyntaxHighlighting()
 	} else {
 		m.setMessage("Nothing to undo")
 	}
@@ -98,8 +91,6 @@ func (m Model) handleRedo() (tea.Model, tea.Cmd) {
 	if m.textBuffer.Redo() {
 		m.updateModified()
 		m.ensureCursorVisible()
-		// Re-highlight everything after redo since we don't know what changed
-		m.applySyntaxHighlighting()
 	} else {
 		m.setMessage("Nothing to redo")
 	}

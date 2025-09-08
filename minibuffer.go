@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Styles are now defined in styles.go
 
 type MinibufferType int
 
@@ -199,17 +198,17 @@ func (m Model) renderGoToLineMinibuffer() string {
 	var inputDisplay strings.Builder
 	for i, char := range m.minibufferInput {
 		if i == m.minibufferCursorPos {
-			inputDisplay.WriteString(MinibufferCursorStyle.Render(string(char)))
+			inputDisplay.WriteString(minibufferCursorStyle.Render(string(char)))
 		} else {
 			inputDisplay.WriteString(string(char))
 		}
 	}
 
 	if m.minibufferCursorPos >= len(m.minibufferInput) {
-		inputDisplay.WriteString(MinibufferCursorStyle.Render(" "))
+		inputDisplay.WriteString(minibufferCursorStyle.Render(" "))
 	}
 
-	content := MinibufferPromptStyle.Render(prompt) + MinibufferInputStyle.Render(inputDisplay.String())
+	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
 
 	minibufferWidth := m.width - 4
 	currentLen := len(prompt) + len(m.minibufferInput)
@@ -218,7 +217,7 @@ func (m Model) renderGoToLineMinibuffer() string {
 		content += padding
 	}
 
-	return MinibufferStyle.Width(m.width - 2).Render(content)
+	return minibufferStyle.Width(m.width - 2).Render(content)
 }
 
 func (m Model) renderFindMinibuffer() string {
@@ -227,17 +226,17 @@ func (m Model) renderFindMinibuffer() string {
 	var inputDisplay strings.Builder
 	for i, char := range m.minibufferInput {
 		if i == m.minibufferCursorPos {
-			inputDisplay.WriteString(MinibufferCursorStyle.Render(string(char)))
+			inputDisplay.WriteString(minibufferCursorStyle.Render(string(char)))
 		} else {
 			inputDisplay.WriteString(string(char))
 		}
 	}
 
 	if m.minibufferCursorPos >= len(m.minibufferInput) {
-		inputDisplay.WriteString(MinibufferCursorStyle.Render(" "))
+		inputDisplay.WriteString(minibufferCursorStyle.Render(" "))
 	}
 
-	content := MinibufferPromptStyle.Render(prompt) + MinibufferInputStyle.Render(inputDisplay.String())
+	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
 
 	minibufferWidth := m.width - 4
 	currentLen := len(prompt) + len(m.minibufferInput)
@@ -246,7 +245,7 @@ func (m Model) renderFindMinibuffer() string {
 		content += padding
 	}
 
-	return MinibufferStyle.Width(m.width - 2).Render(content)
+	return minibufferStyle.Width(m.width - 2).Render(content)
 }
 
 func (m Model) renderFindResultsMinibuffer() string {
@@ -254,7 +253,7 @@ func (m Model) renderFindResultsMinibuffer() string {
 
 	header := fmt.Sprintf("Search results for '%s' (%d matches):",
 		m.lastSearchQuery, len(m.findResults))
-	lines = append(lines, MinibufferPromptStyle.Render(header))
+	lines = append(lines, minibufferPromptStyle.Render(header))
 
 	textLines := m.textBuffer.GetLines()
 	start := m.searchResultsOffset
@@ -271,8 +270,8 @@ func (m Model) renderFindResultsMinibuffer() string {
 		if result.Line < len(textLines) {
 			line := textLines[result.Line]
 
-			contextStart := max(0, result.Column-SearchContextLength)
-			contextEnd := min(len(line), result.Column+len(m.lastSearchQuery)+SearchContextLength)
+			contextStart := max(0, result.Column-30)
+			contextEnd := min(len(line), result.Column+len(m.lastSearchQuery)+30)
 
 			linePreview = line[contextStart:contextEnd]
 
@@ -283,8 +282,8 @@ func (m Model) renderFindResultsMinibuffer() string {
 				linePreview = linePreview + "..."
 			}
 
-			if len(linePreview) > LinePreviewMaxLength {
-				linePreview = linePreview[:LinePreviewTruncate] + "..."
+			if len(linePreview) > 70 {
+				linePreview = linePreview[:67] + "..."
 			}
 
 			linePreview = strings.ReplaceAll(linePreview, "\t", "    ")
@@ -296,20 +295,20 @@ func (m Model) renderFindResultsMinibuffer() string {
 			result.Line+1, result.Column+1, linePreview)
 
 		if isSelected {
-			resultText = SearchResultSelectedStyle.Render(resultText)
+			resultText = searchResultSelectedStyle.Render(resultText)
 		} else {
-			resultText = SearchResultNormalStyle.Render(resultText)
+			resultText = searchResultNormalStyle.Render(resultText)
 		}
 
 		lines = append(lines, resultText)
 	}
 
 	hint := "Esc: cancel"
-	lines = append(lines, HelpStyle.Render(hint))
+	lines = append(lines, helpStyle.Render(hint))
 
 	content := strings.Join(lines, "\n")
 
-	return MinibufferStyle.
+	return minibufferStyle.
 		Width(m.width - 2).
 		Render(content)
 }

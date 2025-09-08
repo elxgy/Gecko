@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Styles are now defined in styles.go
 
 type Model struct {
 	textBuffer          *TextBuffer
@@ -17,12 +16,14 @@ type Model struct {
 	originalText        string
 	width               int
 	height              int
+	viewportY           int // Current viewport position for lazy highlighting
 	showHelp            bool
 	lastSaved           time.Time
 	message             string
 	messageTime         time.Time
 	clipboard           string
 	scrollOffset        int
+	horizontalOffset    int
 	minibufferType      MinibufferType
 	minibufferInput     string
 	minibufferCursorPos int
@@ -32,10 +33,11 @@ type Model struct {
 	searchResultsOffset int
 	maxResultsDisplay   int
 	highlighter         *Highlighter
-	highlightedContent  []string
-	lastHighlightedHash string
-	dirtyLines          map[int]bool
-	highlightingEnabled bool
+	highlightedLines    []string // Lazy highlighted lines
+	currentWordStart    int
+	currentWordEnd      int
+	cursorVisible       bool
+	lastWordBoundsCursor Position
 }
 
 type SelectionInfo struct {
@@ -47,57 +49,47 @@ type SelectionInfo struct {
 func NewModel(filename string) Model {
 	var content string
 	var originalText string
-	var loadError string
 
 	if filename != "" {
-		data, err := os.ReadFile(filename)
-		if err != nil {
-			// Handle different types of file errors
-			if os.IsNotExist(err) {
-				loadError = fmt.Sprintf("File not found: %s", filename)
-			} else if os.IsPermission(err) {
-				loadError = fmt.Sprintf("Permission denied: %s", filename)
-			} else {
-				loadError = fmt.Sprintf("Error reading file: %v", err)
-			}
-			// Create empty buffer for new file
-			content = ""
-			originalText = ""
-		} else {
+		if data, err := os.ReadFile(filename); err == nil {
 			content = string(data)
 			originalText = content
 		}
 	}
 
 	textBuffer := NewTextBuffer(content)
-	model := Model{
-		scrollOffset:        0,
-		textBuffer:          textBuffer,
-		filename:            filename,
-		originalText:        originalText,
-		modified:            false,
-		findResults:         []Position{},
-		findIndex:           -1,
-		maxResultsDisplay:   8,
-		highlighter:         NewHighlighter(filename),
-		dirtyLines:          make(map[int]bool),
-		highlightingEnabled: true,
-	}
+    model := Model{
+        scrollOffset:      0,
+        horizontalOffset:  0,
+        textBuffer:        textBuffer,
+        filename:          filename,
+        originalText:      originalText,
+        modified:          false,
+        findResults:       []Position{},
+        findIndex:         -1,
+        maxResultsDisplay: 8,
+        highlighter:       NewHighlighter(filename),
+        currentWordStart:  -1,
+        currentWordEnd:    -1,
+        lastWordBoundsCursor: Position{Line: -1, Column: -1},
+    }
 
-	// Set load error message if there was one
-	if loadError != "" {
-		model.setMessage(loadError)
-	}
+    model.applySyntaxHighlighting()
+    model.ensureCursorVisible()
+    model.updateWordBounds()
+    return model
+}
 
-	model.applySyntaxHighlighting()
-	model.ensureCursorVisible()
-	return model
+type blinkMsg time.Time
+
+func blinkTick() tea.Cmd {
+	return tea.Tick(500 * time.Millisecond, func(t time.Time) tea.Msg {
+		return blinkMsg(t)
+	})
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Tick(time.Millisecond*TickIntervalMs, func(t time.Time) tea.Msg {
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{}}
-	})
+	return blinkTick()
 }
 
 func main() {
@@ -114,5 +106,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Print(ClearScreen)
+	fmt.Print("\033[2J\033[H")
 }

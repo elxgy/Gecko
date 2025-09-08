@@ -2,114 +2,98 @@ package main
 
 import "github.com/charmbracelet/lipgloss"
 
+// Centralized Lipgloss styles. Keeping them in one place simplifies future theming.
 var (
-	StatusBarStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(ColorPrimary)).
-			Foreground(lipgloss.Color(ColorBright)).
+	// Global UI elements
+	statusBarStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#6f7cbf")).
+			Foreground(lipgloss.Color("230")).
 			Padding(0, 1)
 
-	HelpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorDim))
+	helpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241"))
 
-	ModifiedStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(ColorPrimary)).
-			Foreground(lipgloss.Color(ColorAlert)).
+	modifiedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
 			Bold(true)
 
-	EditorStyle = lipgloss.NewStyle().
+	editorStyle = lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color(ColorBorder)).
+			BorderForeground(lipgloss.Color("#6f7cbf")).
 			Padding(0, 1)
 
-	LineNumberStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorMuted)).
+	lineNumberStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
 			Width(4).
-			Align(lipgloss.Right)
+			Align(lipgloss.Right).
+			Background(lipgloss.NoColor{}) // Remove color block background
 
-	SelectedTextStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(ColorHighlight)).
-			Foreground(lipgloss.Color(ColorForeground))
+	selectedTextStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#4a5568")). // Darker, more subtle highlight with better contrast
+				Foreground(lipgloss.Color("#e2e8f0"))  // Light foreground for better visibility
 
-	CurrentWordStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(ColorSelection)).
-			Foreground(lipgloss.Color(ColorForeground))
+	cursorLineStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#2a2d3a")) // Subtle dark background for current line
 
-	CursorLineStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(ColorBackground))
+	wordHighlightStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#2d3748")). // More subtle, darker background
+				Foreground(lipgloss.Color("#cbd5e0"))  // Soft light foreground for better readability
 
-	HelpBoxStyle = lipgloss.NewStyle().
+	cursorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#282a36")). // White cursor matching VS Code default
+			Background(lipgloss.Color("#ffffff"))
+
+	helpBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(ColorBorder)).
+			BorderForeground(lipgloss.Color("#6f7cbf")).
 			AlignHorizontal(lipgloss.Center).
 			Padding(1, 2).
 			Margin(1, 0)
 
-	HelpTitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorPrimary)).
+	helpTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6f7cbf")).
 			Bold(true).
 			Underline(true)
 
-	HelpKeyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorAccent)).
+	helpKeyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#89b4fa")).
 			Bold(true)
 
-	HelpDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorText))
+	helpDescStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cdd6f4"))
 
-	// Minibuffer styles
-	MinibufferStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(ColorSelection)).
-			Foreground(lipgloss.Color(ColorForeground)).
+	// Minibuffer & search styles
+	minibufferStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#44475a")).
+			Foreground(lipgloss.Color("#f8f8f2")).
 			Padding(0, 1)
 
-	MinibufferPromptStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorAccent)).
-			Bold(true)
+	minibufferPromptStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#89b4fa")).
+				Bold(true)
 
-	MinibufferInputStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorForeground))
+	minibufferInputStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#f8f8f2"))
 
-	MinibufferCursorStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(ColorForeground)).
-			Foreground(lipgloss.Color(ColorBackground))
+	minibufferCursorStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#f8f8f2")).
+				Foreground(lipgloss.Color("#282a36"))
 
-	SearchResultSelectedStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(ColorMinibuffer)).
-			Foreground(lipgloss.Color(ColorMinibufferBg)).
-			Bold(true)
+	searchResultSelectedStyle = lipgloss.NewStyle().
+					Background(lipgloss.Color("#b889fa")).
+					Foreground(lipgloss.Color("#1e1e2e")).
+					Bold(true)
 
-	SearchResultNormalStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorInfo))
+	searchResultNormalStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00ffe1"))
 
-	// Message styles
-	SuccessMessageStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorSuccess))
+	// Flash message styles
+	flashSuccessStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#ff00b3"))
 
-	ErrorMessageStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorError))
+	flashErrorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#800024"))
 
-	WarningMessageStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ColorWarning))
-
-	// Status bar section styles
-	StatusBarLeftStyle = func(width int) lipgloss.Style {
-		return lipgloss.NewStyle().
-			Width(width / StatusBarSections).
-			Align(lipgloss.Left).
-			Background(lipgloss.Color(ColorPrimary))
-	}
-
-	StatusBarCenterStyle = func(width int) lipgloss.Style {
-		return lipgloss.NewStyle().
-			Width(width / StatusBarSections).
-			Align(lipgloss.Center).
-			Background(lipgloss.Color(ColorPrimary))
-	}
-
-	StatusBarRightStyle = func(width int) lipgloss.Style {
-		return lipgloss.NewStyle().
-			Width(width / StatusBarSections).
-			Align(lipgloss.Right).
-			Background(lipgloss.Color(ColorPrimary))
-	}
+	flashWarningStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#e3e094"))
 )

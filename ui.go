@@ -19,7 +19,7 @@ func (m Model) View() string {
 			lipgloss.Center,
 			helpView,
 			lipgloss.WithWhitespaceChars(""),
-			lipgloss.WithWhitespaceForeground(lipgloss.Color(ColorWhitespace)),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color("236")),
 		)
 	}
 	return baseView
@@ -30,8 +30,9 @@ func (m Model) renderEditor() string {
 	cursor := m.textBuffer.GetCursor()
 	selection := m.textBuffer.GetSelection()
 
-	if len(m.highlightedContent) == len(lines) {
-		lines = m.highlightedContent
+	// Use highlighted lines if available and properly sized
+	if len(m.highlightedLines) == len(lines) {
+		lines = m.highlightedLines
 	}
 
 	visibleLines := m.getVisibleLines()
@@ -40,36 +41,41 @@ func (m Model) renderEditor() string {
 
 	content := m.renderVisibleLines(lines, startLine, endLine, cursor, selection, visibleLines)
 
-	// Calculate responsive editor dimensions
-	editorWidth := m.calculateEditorWidth()
-	editorHeight := m.calculateEditorHeight(visibleLines)
-	
-	editorContent := EditorStyle.
-		Width(editorWidth).
-		Height(editorHeight).
-		Render(content)
-
 	statusBar := m.renderStatusBar()
 
-	return lipgloss.JoinVertical(lipgloss.Center, editorContent, statusBar)
+	// Ensure editor and status bar share exact width constraints
+	return lipgloss.JoinVertical(lipgloss.Left,
+		editorStyle.Render(content),
+		statusBar,
+	)
 }
 
 func (m Model) renderVisibleLines(lines []string, startLine, endLine int, cursor Position, selection *Selection, visibleLines int) string {
-	var content strings.Builder
-
+	var contentLines []string
+	innerWidth := m.width - 4 // borders and padding
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
 	for i := 0; i < visibleLines; i++ {
 		actualLineIndex := startLine + i
-
-		lineNum := LineNumberStyle.Render(fmt.Sprintf("%4d", actualLineIndex+1))
-
+		lineNum := lineNumberStyle.Render(fmt.Sprintf("%4d", actualLineIndex+1))
 		renderedLine := m.getRenderedLine(lines, actualLineIndex, cursor, selection)
+		// Apply horizontal offset
+		plainLine := stripAnsiCodes(renderedLine)
+		if m.horizontalOffset > 0 && len(plainLine) > m.horizontalOffset {
+			renderedLine = renderedLine[plainToAnsiIndex(renderedLine, m.horizontalOffset):]
+		}
+
+		// Apply cursor line styling only to the text content, not line numbers
+		if actualLineIndex == cursor.Line {
+			renderedLine = cursorLineStyle.Render(renderedLine)
+		}
 
 		lineContent := lineNum + " " + renderedLine
-		paddedLine := m.padLineToWidth(lineContent)
-		content.WriteString(paddedLine + "\n")
+		paddedLine := lipgloss.NewStyle().Width(innerWidth).Render(lineContent)
+		contentLines = append(contentLines, paddedLine)
 	}
-
-	return content.String()
+	return strings.Join(contentLines, "\n")
 }
 
 func (m Model) getRenderedLine(lines []string, lineIndex int, cursor Position, selection *Selection) string {
@@ -81,73 +87,130 @@ func (m Model) getRenderedLine(lines []string, lineIndex int, cursor Position, s
 
 	renderedLine := m.renderLineWithSelection(line, lineIndex, cursor, selection)
 
-	if lineIndex == cursor.Line {
-		renderedLine = CursorLineStyle.Render(renderedLine)
-	}
+	// Cursor line styling is now handled in renderVisibleLines to avoid affecting line numbers
 
 	return renderedLine
 }
 
 func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Position, selection *Selection) string {
-	plainLine := stripAnsiCodes(line)
-	plainLen := len(plainLine)
+	// Calculate plain text length from original line (before any additional highlighting)
+	originalPlainLine := stripAnsiCodes(line)
+	plainLen := len(originalPlainLine)
 
-	if selection == nil && lineIndex == cursor.Line {
-		// Highlight current word if no selection
-		wordStart, wordEnd := m.textBuffer.GetCurrentWordBounds()
-		if wordStart.Line == lineIndex && wordStart.Column != wordEnd.Column {
-			// Render word highlighting
-			startIndex := plainToAnsiIndex(line, wordStart.Column)
-			endIndex := plainToAnsiIndex(line, wordEnd.Column)
-			cursorCol := clamp(cursor.Column, 0, plainLen)
-			cursorIndex := plainToAnsiIndex(line, cursorCol)
-			
-			before := line[:startIndex]
-			highlightedWord := line[startIndex:endIndex]
-			after := line[endIndex:]
-			
-			// Insert cursor within the highlighted word
-			if cursorIndex >= startIndex && cursorIndex <= endIndex {
-				relativeCursorPos := cursorIndex - startIndex
-				highlightedWithCursor := highlightedWord[:relativeCursorPos] + "█" + highlightedWord[relativeCursorPos:]
-				return before + CurrentWordStyle.Render(stripAnsiCodes(highlightedWithCursor)) + after
-			} else {
-				// Cursor outside word, render normally with cursor
-				result := before + CurrentWordStyle.Render(stripAnsiCodes(highlightedWord)) + after
-				if cursorIndex < startIndex {
-					return result[:cursorIndex] + "█" + result[cursorIndex:]
-				} else {
-					return result[:cursorIndex] + "█" + result[cursorIndex:]
-				}
-			}
-		} else {
-			// No word to highlight, just show cursor
-			cursorCol := clamp(cursor.Column, 0, plainLen)
-			cursorIndex := plainToAnsiIndex(line, cursorCol)
-			return line[:cursorIndex] + "█" + line[cursorIndex:]
-		}
+	// Apply word highlight if on cursor line and valid bounds
+	if lineIndex == cursor.Line && m.currentWordStart >= 0 && m.currentWordEnd > m.currentWordStart {
+		line = m.applyWordHighlight(line, m.currentWordStart, m.currentWordEnd)
 	}
 
+	// Apply selection if present - use original plain length for consistency
+	line = m.applySelection(line, lineIndex, plainLen, selection)
+
+	// Always render cursor on cursor line (visible or invisible for blinking)
+	if lineIndex == cursor.Line {
+		line = m.applyCursor(line, cursor.Column, originalPlainLine, plainLen)
+	}
+
+	return line
+}
+
+func (m Model) applyWordHighlight(highlighted string, start, end int) string {
+	// Check for invalid bounds (returned when no word should be highlighted)
+	if start == -1 || end == -1 || start < 0 || end < 0 || start >= end {
+		return highlighted
+	}
+	startByte := plainToAnsiIndex(highlighted, start)
+	endByte := plainToAnsiIndex(highlighted, end)
+	if startByte >= endByte {
+		return highlighted
+	}
+	prefix := highlighted[:startByte]
+	middle := highlighted[startByte:endByte]
+	suffix := highlighted[endByte:]
+	styledMiddle := wordHighlightStyle.Render(middle)
+	return prefix + styledMiddle + suffix
+}
+
+func (m Model) applySelection(line string, lineIndex int, plainLen int, selection *Selection) string {
 	selectionInfo := m.getSelectionInfo(lineIndex, selection, plainLen)
 	if !selectionInfo.hasSelection {
 		return line
 	}
-
 	startCol := selectionInfo.startCol
 	endCol := selectionInfo.endCol
-
 	if startCol > endCol {
 		startCol, endCol = endCol, startCol
+	}
+
+	// Handle empty selected lines to show selection background
+	if plainLen == 0 && selectionInfo.hasSelection {
+		return selectedTextStyle.Render(" ")
+	}
+
+	// Ensure selection bounds are valid
+	if startCol < 0 {
+		startCol = 0
+	}
+	if endCol > plainLen {
+		endCol = plainLen
+	}
+	if startCol >= endCol {
+		return line
 	}
 
 	startIndex := plainToAnsiIndex(line, startCol)
 	endIndex := plainToAnsiIndex(line, endCol)
 
+	// Validate byte positions
+	if startIndex < 0 || endIndex < 0 || startIndex >= len(line) || endIndex > len(line) || startIndex >= endIndex {
+		return line
+	}
+
 	before := line[:startIndex]
 	selected := line[startIndex:endIndex]
 	after := line[endIndex:]
 
-	return before + SelectedTextStyle.Render(stripAnsiCodes(selected)) + after
+	// Strip any existing ANSI codes from the selected section before applying selection style
+	plainSelected := stripAnsiCodes(selected)
+	styledSelected := selectedTextStyle.Render(plainSelected)
+	line = before + styledSelected + after
+
+	return line
+}
+
+func (m Model) applyCursor(line string, cursorCol int, plainLine string, plainLen int) string {
+	cursorCol = clamp(cursorCol, 0, plainLen)
+	cursorIndex := plainToAnsiIndex(line, cursorCol)
+	var charLen int
+	var cursorCharPlain string
+	if cursorCol < plainLen {
+		r := rune(plainLine[cursorCol])
+		charEndIndex := plainToAnsiIndex(line, cursorCol+1)
+		charLen = charEndIndex - cursorIndex
+		cursorCharPlain = string(r)
+	} else {
+		cursorIndex = len(line)
+		charLen = 0
+		cursorCharPlain = " "
+	}
+	
+	// Apply cursor styling based on visibility state
+	var styledCursor string
+	if m.cursorVisible {
+	// Visible cursor with full styling
+	styledCursor = cursorStyle.Render(cursorCharPlain)
+} else {
+	// Invisible cursor - preserve the original styled character to maintain dimensions
+	// This keeps word highlighting and other styling intact during blink
+	if cursorCol < plainLen {
+		// Return the original character segment with all its existing styling preserved
+		styledCursor = line[cursorIndex:cursorIndex+charLen]
+	} else {
+		// Don't add extra space when invisible to enable proper blinking by disappearance
+		styledCursor = ""
+	}
+}
+	
+	return line[:cursorIndex] + styledCursor + line[cursorIndex+charLen:]
 }
 
 func (m Model) getSelectionInfo(lineIndex int, selection *Selection, plainLen int) SelectionInfo {
@@ -155,8 +218,7 @@ func (m Model) getSelectionInfo(lineIndex int, selection *Selection, plainLen in
 		return SelectionInfo{hasSelection: false}
 	}
 
-	// Use TextBuffer's normalizeSelection method
-	start, end := m.textBuffer.normalizeSelection()
+	start, end := m.normalizeSelection(selection)
 
 	if lineIndex < start.Line || lineIndex > end.Line {
 		return SelectionInfo{hasSelection: false}
@@ -198,7 +260,7 @@ func (m Model) getStatusBarFilename() string {
 	}
 
 	if m.modified {
-		return ModifiedStyle.Render(filename)
+		return modifiedStyle.Render(filename)
 	}
 	return filename
 }
@@ -219,52 +281,90 @@ func (m Model) getStatusBarRightInfo() string {
 }
 
 func (m Model) formatStatusBar(left, center, right string) string {
-	// Handle very narrow terminals
-	if m.width < MinTerminalWidth {
-		return m.formatCompactStatusBar(left, center, right)
+	// The status bar itself has horizontal padding of 1 on each side, so
+	// the inner content area is two columns narrower than the full terminal width.
+	// Account for status bar's 1-cell padding on both sides
+	contentWidth := m.width - 2 // total width - padding(2)
+
+	// Reserve at least 3 columns for spacing between sections
+	if contentWidth < 30 {
+		// Extremely narrow, just concatenate with single spaces, then hard-set width for consistency.
+		compact := fmt.Sprintf("%s %s %s", left, center, right)
+		rendered := lipgloss.NewStyle().Width(contentWidth).Background(lipgloss.Color("#6f7cbf")).Render(compact)
+		return statusBarStyle.Render(rendered)
 	}
 
-	contentWidth := max(m.width, MinTerminalWidth)
-	
-	// Calculate section width with minimum constraints
-	sectionWidth := max(contentWidth / StatusBarSections, 8) // Minimum 8 chars per section
-	
-	// Adjust content if sections are too wide
-	leftTrimmed, centerTrimmed, rightTrimmed := m.adjustStatusBarSections(left, center, right, sectionWidth)
-	
-	leftStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Left).Background(lipgloss.Color(ColorPrimary))
-	centerStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Center).Background(lipgloss.Color(ColorPrimary))
-	rightStyle := lipgloss.NewStyle().Width(sectionWidth).Align(lipgloss.Right).Background(lipgloss.Color(ColorPrimary))
+	// Determine widths: give left and right their needed size first, let center take the rest.
+	leftRequired := lipgloss.Width(stripAnsiCodes(left)) + 1 // +1 padding
+	rightRequired := lipgloss.Width(stripAnsiCodes(right)) + 1
 
-	leftRendered := leftStyle.Render(leftTrimmed)
-	centerRendered := centerStyle.Render(centerTrimmed)
-	rightRendered := rightStyle.Render(rightTrimmed)
+	// Ensure we never allocate more than 40% for either side to keep center visible
+	maxSide := int(float64(contentWidth) * 0.4)
+	if leftRequired > maxSide {
+		leftRequired = maxSide
+	}
+	if rightRequired > maxSide {
+		rightRequired = maxSide
+	}
 
-	statusContent := lipgloss.JoinHorizontal(lipgloss.Top, leftRendered, centerRendered, rightRendered)
+	// Calculate remaining width for center ensuring it never becomes negative.
+	centerWidth := contentWidth - leftRequired - rightRequired
+	if centerWidth < 5 {
+		// Reclaim space from the sides so we always have at least 5 cols for center.
+		deficit := 5 - centerWidth
+		reclaim := (deficit + 1) / 2 // round up
 
-	return StatusBarStyle.Render(statusContent)
+		if leftRequired > reclaim {
+			leftRequired -= reclaim
+		}
+		if rightRequired > reclaim {
+			rightRequired -= reclaim
+		}
+		centerWidth = 5
+	}
+
+	// Safety clamp in case rounding pushed a side below 1.
+	if leftRequired < 1 {
+		leftRequired = 1
+	}
+	if rightRequired < 1 {
+		rightRequired = 1
+	}
+
+	leftStyle := lipgloss.NewStyle().Width(leftRequired).Align(lipgloss.Left).Background(lipgloss.Color("#6f7cbf"))
+	centerStyle := lipgloss.NewStyle().Width(centerWidth).Align(lipgloss.Center).Background(lipgloss.Color("#6f7cbf"))
+	rightStyle := lipgloss.NewStyle().Width(rightRequired).Align(lipgloss.Right).Background(lipgloss.Color("#6f7cbf"))
+
+	statusContent := lipgloss.JoinHorizontal(lipgloss.Top,
+		leftStyle.Render(left),
+		centerStyle.Render(center),
+		rightStyle.Render(right),
+	)
+
+	// Ensure the inner bar always occupies the exact content width.
+	statusContent = lipgloss.NewStyle().Width(contentWidth).Render(statusContent)
+
+	return statusBarStyle.Render(statusContent)
 }
 
 func (m Model) renderHelp() string {
-	// Handle very small terminals gracefully
-	if m.width < MinTerminalWidth || m.height < MinTerminalHeight {
-		return HelpBoxStyle.Render("Terminal too small for help. Press Ctrl+H to close.")
+	const keyColumnWidth = 18
+	// Choose help box width based on current terminal size.
+	// Use 60% of width when wide enough, but never exceed terminal minus 4 cols.
+	maxWidth := m.width * 60 / 100
+	if maxWidth > m.width-4 {
+		maxWidth = m.width - 4
 	}
-	
-	const keyColumnWidth = KeyColumnWidth
-	maxWidth := m.width * HelpMaxWidthPercent / 100
-	if maxWidth < HelpMinWidth {
-		maxWidth = HelpMinWidth
+	// Ensure a sane minimum so content is readable.
+	if maxWidth < 40 {
+		maxWidth = m.width - 4 // in very narrow terminals just use almost full width
 	}
-	
-	// Ensure minimum content width
-	maxWidth = max(maxWidth, MinContentWidth + 10)
 
 	contentWidth := maxWidth - 3
-	descWidth := max(contentWidth - keyColumnWidth - 1, 10) // Minimum description width
+	descWidth := contentWidth - keyColumnWidth - 1
 	var help strings.Builder
 
-	title := HelpTitleStyle.Render("Text Editor Help")
+	title := helpTitleStyle.Render("Text Editor Help")
 	help.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, title))
 	help.WriteString("\n\n")
 
@@ -296,123 +396,39 @@ func (m Model) renderHelp() string {
 	}
 
 	for _, item := range helpItems {
-		key := HelpKeyStyle.Render(item.key)
+		key := helpKeyStyle.Render(item.key)
 		key = lipgloss.NewStyle().Width(keyColumnWidth).Render(key)
 
 		desc := lipgloss.NewStyle().
 			Width(descWidth).
 			MaxWidth(descWidth).
-			Render(HelpDescStyle.Render(item.desc))
+			Render(helpDescStyle.Render(item.desc))
 
 		help.WriteString(key + " " + desc + "\n")
 	}
 
 	help.WriteString("\n")
-	footer := HelpStyle.Render("Press Ctrl+H again to close help")
+	footer := helpStyle.Render("Press Ctrl+H again to close help")
 	help.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, footer))
 
-	return HelpBoxStyle.Render(help.String())
+	return helpBoxStyle.Render(help.String())
 }
 
 func (m Model) padLineToWidth(line string) string {
-	// Calculate available width more precisely
-	availableWidth := m.calculateContentWidth()
-
-	cleanLine := stripAnsiCodes(line)
-	currentLength := len(cleanLine)
-
-	if currentLength < availableWidth {
-		padding := strings.Repeat(" ", availableWidth-currentLength)
-		return line + padding
+	// Ensure the inner content strictly fits within the editor window so the right border is always visible.
+	innerWidth := m.width - 4 // 1 char left border + 1 left padding + 1 right padding + 1 right border
+	if innerWidth < 1 {
+		innerWidth = 1
 	}
 
-	// Handle line truncation for small terminals
-	if currentLength > availableWidth {
-		if availableWidth > 3 {
-			// Safely truncate with ellipsis
-			truncateAt := max(0, availableWidth-3)
-			if truncateAt < len(line) {
-				return line[:truncateAt] + "..."
-			}
-		}
-		// Fallback for very narrow terminals
-		if availableWidth > 0 && availableWidth < len(line) {
-			return line[:availableWidth]
-		}
-	}
-
-	return line
+	// Lipgloss will pad or truncate as necessary based on the supplied width, which keeps ANSI width calculations accurate.
+	return lipgloss.NewStyle().Width(innerWidth).Render(line)
 }
-
 func (m Model) getVisibleLines() int {
 	minibufferHeight := m.getMinibufferHeight()
-	// Account for editor border (2), status bar (1), and padding (1)
-	reservedHeight := 4 + minibufferHeight
-	visibleLines := max(m.height - reservedHeight, 1)
-	
-	// Ensure we have at least 1 visible line even in very small terminals
-	if visibleLines < 1 {
-		return 1
+	visibleLines := m.height - 3 - minibufferHeight
+	if visibleLines < 0 {
+		return 0
 	}
 	return visibleLines
-}
-
-// calculateEditorWidth computes the responsive editor width
-func (m Model) calculateEditorWidth() int {
-	// Ensure minimum editor width, accounting for borders and padding
-	minWidth := max(MinContentWidth, MinTerminalWidth-4)
-	calculatedWidth := max(m.width-2, minWidth)
-	return calculatedWidth
-}
-
-// calculateEditorHeight computes the responsive editor height
-func (m Model) calculateEditorHeight(visibleLines int) int {
-	// Add border space (2) to visible lines
-	return max(visibleLines+2, 3)
-}
-
-// calculateContentWidth computes available width for content rendering
-func (m Model) calculateContentWidth() int {
-	// Account for editor borders (2) and line number space (estimated 4)
-	reservedWidth := 6
-	availableWidth := max(m.width-reservedWidth, MinContentWidth)
-	return availableWidth
-}
-
-
-
-// adjustStatusBarSections truncates status bar sections to fit available width
-func (m Model) adjustStatusBarSections(left, center, right string, sectionWidth int) (string, string, string) {
-	// Truncate each section to fit within sectionWidth
-	leftTrimmed := m.truncateToWidth(left, sectionWidth)
-	centerTrimmed := m.truncateToWidth(center, sectionWidth)
-	rightTrimmed := m.truncateToWidth(right, sectionWidth)
-	
-	return leftTrimmed, centerTrimmed, rightTrimmed
-}
-
-// truncateToWidth truncates text to fit within specified width
-func (m Model) truncateToWidth(text string, width int) string {
-	if len(text) <= width {
-		return text
-	}
-	
-	if width <= 3 {
-		return strings.Repeat(".", max(width, 0))
-	}
-	
-	return text[:width-3] + "..."
-}
-
-// formatCompactStatusBar creates a minimal status bar for very narrow terminals (3-section version)
-func (m Model) formatCompactStatusBar(left, center, right string) string {
-	// Show only essential info in compact format
-	compactInfo := fmt.Sprintf(" %s ", center) // Show center info (cursor position)
-	if len(compactInfo) > m.width {
-		// Fallback for extremely narrow terminals
-		return strings.Repeat(" ", max(m.width, 1))
-	}
-	
-	padding := strings.Repeat(" ", max(0, m.width-len(compactInfo)))
-	return compactInfo + padding
 }
