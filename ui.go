@@ -59,7 +59,6 @@ func (m Model) renderVisibleLines(lines []string, startLine, endLine int, cursor
 		actualLineIndex := startLine + i
 		lineNum := lineNumberStyle.Render(fmt.Sprintf("%4d", actualLineIndex+1))
 		renderedLine := m.getRenderedLine(lines, actualLineIndex, cursor, selection)
-		// Apply horizontal offset
 		plainLine := stripAnsiCodes(renderedLine)
 		if m.horizontalOffset > 0 && len(plainLine) > m.horizontalOffset {
 			renderedLine = renderedLine[plainToAnsiIndex(renderedLine, m.horizontalOffset):]
@@ -113,7 +112,6 @@ func (m Model) renderLineWithSelection(line string, lineIndex int, cursor Positi
 }
 
 func (m Model) applyWordHighlight(highlighted string, start, end int) string {
-	// Check for invalid bounds (returned when no word should be highlighted)
 	if start == -1 || end == -1 || start < 0 || end < 0 || start >= end {
 		return highlighted
 	}
@@ -191,24 +189,23 @@ func (m Model) applyCursor(line string, cursorCol int, plainLine string, plainLe
 		charLen = 0
 		cursorCharPlain = " "
 	}
-	
+
 	// Apply cursor styling based on visibility state
 	var styledCursor string
 	if m.cursorVisible {
-	// Visible cursor with full styling
-	styledCursor = cursorStyle.Render(cursorCharPlain)
-} else {
-	// Invisible cursor - preserve the original styled character to maintain dimensions
-	// This keeps word highlighting and other styling intact during blink
-	if cursorCol < plainLen {
-		// Return the original character segment with all its existing styling preserved
-		styledCursor = line[cursorIndex:cursorIndex+charLen]
+		// Visible cursor with full styling
+		styledCursor = cursorStyle.Render(cursorCharPlain)
 	} else {
-		// Don't add extra space when invisible to enable proper blinking by disappearance
-		styledCursor = ""
+		// Invisible cursor - preserve the original styled character to maintain dimensions
+		// This keeps word highlighting and other styling intact during blink
+		if cursorCol < plainLen {
+			styledCursor = line[cursorIndex : cursorIndex+charLen]
+		} else {
+			// Don't add extra space when invisible to enable proper blinking by disappearance
+			styledCursor = ""
+		}
 	}
-}
-	
+
 	return line[:cursorIndex] + styledCursor + line[cursorIndex+charLen:]
 }
 
@@ -287,7 +284,6 @@ func (m Model) formatStatusBar(left, center, right string) string {
 
 	// Reserve at least 3 columns for spacing between sections
 	if contentWidth < 30 {
-		// Extremely narrow, just concatenate with single spaces, then hard-set width for consistency.
 		compact := fmt.Sprintf("%s %s %s", left, center, right)
 		rendered := lipgloss.NewStyle().Width(contentWidth).Background(lipgloss.Color("#6f7cbf")).Render(compact)
 		return statusBarStyle.Render(rendered)

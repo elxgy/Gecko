@@ -62,20 +62,6 @@ type GapBuffer struct {
 	gapEnd   int
 }
 
-// NewGapBuffer creates a new gap buffer with initial content
-func NewGapBuffer(content string) *GapBuffer {
-	runes := []rune(content)
-	gapSize := max(len(runes), 256) // Initial gap size
-	buffer := make([]rune, len(runes)+gapSize)
-	copy(buffer, runes)
-	
-	return &GapBuffer{
-		buffer:   buffer,
-		gapStart: len(runes),
-		gapEnd:   len(buffer),
-	}
-}
-
 // moveGapTo moves the gap to the specified position
 func (gb *GapBuffer) moveGapTo(pos int) {
 	if pos < gb.gapStart {
@@ -97,12 +83,12 @@ func (gb *GapBuffer) moveGapTo(pos int) {
 func (gb *GapBuffer) Insert(pos int, text string) {
 	runes := []rune(text)
 	gb.moveGapTo(pos)
-	
+
 	// Expand gap if necessary
 	if len(runes) > gb.gapEnd-gb.gapStart {
 		gb.expandGap(len(runes))
 	}
-	
+
 	copy(gb.buffer[gb.gapStart:], runes)
 	gb.gapStart += len(runes)
 }
@@ -112,7 +98,7 @@ func (gb *GapBuffer) Delete(start, end int) {
 	if start > end {
 		start, end = end, start
 	}
-	
+
 	// Bounds checking
 	if start < 0 {
 		start = 0
@@ -123,10 +109,10 @@ func (gb *GapBuffer) Delete(start, end int) {
 	if start >= end {
 		return // Nothing to delete
 	}
-	
+
 	// Move gap to start position
 	gb.moveGapTo(start)
-	
+
 	// Expand the gap to include the deleted range
 	gb.gapEnd += end - start
 }
@@ -135,18 +121,17 @@ func (gb *GapBuffer) Delete(start, end int) {
 func (gb *GapBuffer) expandGap(minSize int) {
 	newGapSize := max(minSize*2, 256)
 	newBuffer := make([]rune, len(gb.buffer)+newGapSize)
-	
+
 	// Copy text before gap
 	copy(newBuffer, gb.buffer[:gb.gapStart])
-	
+
 	// Copy text after gap
 	copy(newBuffer[gb.gapStart+newGapSize:], gb.buffer[gb.gapEnd:])
-	
+
 	gb.buffer = newBuffer
 	gb.gapEnd = gb.gapStart + newGapSize
 }
 
-// String returns the content as a string
 func (gb *GapBuffer) String() string {
 	result := make([]rune, 0, len(gb.buffer)-(gb.gapEnd-gb.gapStart))
 	result = append(result, gb.buffer[:gb.gapStart]...)
@@ -154,7 +139,6 @@ func (gb *GapBuffer) String() string {
 	return string(result)
 }
 
-// Len returns the length of the content (excluding gap)
 func (gb *GapBuffer) Len() int {
 	return len(gb.buffer) - (gb.gapEnd - gb.gapStart)
 }
@@ -169,8 +153,8 @@ type TextBuffer struct {
 	maxHistory              int
 	selectAllOriginalCursor *Position
 	// Performance optimization: cache frequently accessed data
-	lastLineCount           int
-	lastContentHash         uint64
+	lastLineCount   int
+	lastContentHash uint64
 }
 
 type TextState struct {
@@ -223,7 +207,6 @@ func (tb *TextBuffer) validatePosition(pos Position) error {
 	return nil
 }
 
-// getLineLength returns the length of a line safely
 func (tb *TextBuffer) getLineLength(lineIdx int) int {
 	if lineIdx < 0 || lineIdx >= len(tb.lines) {
 		return 0
@@ -915,7 +898,6 @@ func (tb *TextBuffer) GetWordBoundsAtCursor() (int, int) {
 	return wordStart, wordEnd
 }
 
-// isWordBoundary returns true if the character is a word boundary
 func isWordBoundary(ch byte) bool {
 	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' ||
 		ch == '.' || ch == ',' || ch == ';' || ch == ':' ||
