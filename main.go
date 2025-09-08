@@ -16,6 +16,7 @@ type Model struct {
 	originalText        string
 	width               int
 	height              int
+	viewportY           int // Current viewport position for lazy highlighting
 	showHelp            bool
 	lastSaved           time.Time
 	message             string
@@ -32,7 +33,7 @@ type Model struct {
 	searchResultsOffset int
 	maxResultsDisplay   int
 	highlighter         *Highlighter
-	highlightedContent  []string
+	highlightedLines    []string // Lazy highlighted lines
 	currentWordStart    int
 	currentWordEnd      int
 	cursorVisible       bool

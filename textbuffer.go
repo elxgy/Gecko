@@ -199,6 +199,12 @@ func NewTextBuffer(content string) *TextBuffer {
 
 // calculateContentHash calculates a simple hash of the content for change detection
 func (tb *TextBuffer) calculateContentHash(lines []string) uint64 {
+	// For large files, only hash a subset to avoid performance issues
+	if len(lines) > 1000 {
+		// Hash first 100, middle 100, and last 100 lines for large files
+		return tb.calculatePartialHash(lines)
+	}
+	
 	var hash uint64 = 5381
 	for _, line := range lines {
 		for _, char := range line {
@@ -206,6 +212,43 @@ func (tb *TextBuffer) calculateContentHash(lines []string) uint64 {
 		}
 		hash = ((hash << 5) + hash) + uint64('\n') // Add newline to hash
 	}
+	return hash
+}
+
+// calculatePartialHash computes hash for large files using sampling
+func (tb *TextBuffer) calculatePartialHash(lines []string) uint64 {
+	var hash uint64 = 5381
+	totalLines := len(lines)
+	
+	// Hash first 100 lines
+	for i := 0; i < min(100, totalLines); i++ {
+		for _, char := range lines[i] {
+			hash = ((hash << 5) + hash) + uint64(char)
+		}
+		hash = ((hash << 5) + hash) + uint64('\n')
+	}
+	
+	// Hash middle 100 lines
+	midStart := max(100, totalLines/2-50)
+	midEnd := min(totalLines, midStart+100)
+	for i := midStart; i < midEnd; i++ {
+		for _, char := range lines[i] {
+			hash = ((hash << 5) + hash) + uint64(char)
+		}
+		hash = ((hash << 5) + hash) + uint64('\n')
+	}
+	
+	// Hash last 100 lines
+	lastStart := max(midEnd, totalLines-100)
+	for i := lastStart; i < totalLines; i++ {
+		for _, char := range lines[i] {
+			hash = ((hash << 5) + hash) + uint64(char)
+		}
+		hash = ((hash << 5) + hash) + uint64('\n')
+	}
+	
+	// Include total line count in hash to detect structural changes
+	hash = ((hash << 5) + hash) + uint64(totalLines)
 	return hash
 }
 
@@ -243,6 +286,44 @@ func (tb *TextBuffer) GetLines() []string {
 	lines := make([]string, len(tb.lines))
 	copy(lines, tb.lines)
 	return lines
+}
+
+// GetLinesRange returns a subset of lines for viewport rendering
+func (tb *TextBuffer) GetLinesRange(start, end int) []string {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	
+	if start < 0 {
+		start = 0
+	}
+	if end > len(tb.lines) {
+		end = len(tb.lines)
+	}
+	if start >= end {
+		return []string{}
+	}
+	
+	lines := make([]string, end-start)
+	copy(lines, tb.lines[start:end])
+	return lines
+}
+
+// GetLineCount returns the total number of lines
+func (tb *TextBuffer) GetLineCount() int {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return len(tb.lines)
+}
+
+// GetLine returns a single line safely
+func (tb *TextBuffer) GetLine(lineIdx int) string {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	
+	if lineIdx < 0 || lineIdx >= len(tb.lines) {
+		return ""
+	}
+	return tb.lines[lineIdx]
 }
 
 func (tb *TextBuffer) GetCursor() Position {
@@ -533,22 +614,31 @@ func (tb *TextBuffer) InsertText(text string) error {
 	currentLine := tb.lines[tb.cursor.Line]
 
 	if len(lines) == 1 {
+		// Single line insertion - most common case, optimize for speed
 		before := currentLine[:tb.cursor.Column]
 		after := currentLine[tb.cursor.Column:]
 		tb.lines[tb.cursor.Line] = before + text + after
 		tb.cursor.Column += len(text)
 	} else {
+		// Multi-line insertion - optimize to reduce allocations
 		before := currentLine[:tb.cursor.Column]
 		after := currentLine[tb.cursor.Column:]
 
+		// Update first line
 		tb.lines[tb.cursor.Line] = before + lines[0]
 
-		newLines := make([]string, len(tb.lines)+len(lines)-1)
-		copy(newLines, tb.lines[:tb.cursor.Line+1])
-		copy(newLines[tb.cursor.Line+1:], lines[1:])
-		copy(newLines[tb.cursor.Line+len(lines):], tb.lines[tb.cursor.Line+1:])
-
-		tb.lines = newLines
+		// For large files, use append strategy to reduce memory pressure
+		if len(tb.lines) > 1000 {
+			// Use append strategy for large files to avoid large allocations
+			tb.insertLinesEfficient(tb.cursor.Line+1, lines[1:], after)
+		} else {
+			// Use slice copy for smaller files
+			newLines := make([]string, len(tb.lines)+len(lines)-1)
+			copy(newLines, tb.lines[:tb.cursor.Line+1])
+			copy(newLines[tb.cursor.Line+1:], lines[1:])
+			copy(newLines[tb.cursor.Line+len(lines):], tb.lines[tb.cursor.Line+1:])
+			tb.lines = newLines
+		}
 
 		lastLineIdx := tb.cursor.Line + len(lines) - 1
 		tb.lines[lastLineIdx] += after
@@ -559,11 +649,34 @@ func (tb *TextBuffer) InsertText(text string) error {
 
 	tb.selection = nil
 
-	// Update performance tracking fields
+	// Update performance tracking fields - only recalculate hash if needed
 	tb.lastLineCount = len(tb.lines)
-	tb.lastContentHash = tb.calculateContentHash(tb.lines)
+	if len(tb.lines) < 500 || len(lines) == 1 {
+		// Only recalculate hash for smaller files or single-line changes
+		tb.lastContentHash = tb.calculateContentHash(tb.lines)
+	}
 
 	return nil
+}
+
+// insertLinesEfficient inserts lines efficiently for large files
+func (tb *TextBuffer) insertLinesEfficient(insertAt int, newLines []string, suffix string) {
+	// Append new lines to the end first
+	tb.lines = append(tb.lines, newLines...)
+	
+	// Add suffix to the last inserted line
+	if len(newLines) > 0 {
+		tb.lines[len(tb.lines)-1] += suffix
+	}
+	
+	// Move the tail to make room
+	if insertAt < len(tb.lines)-len(newLines) {
+		copy(tb.lines[insertAt+len(newLines):], tb.lines[insertAt:len(tb.lines)-len(newLines)])
+		copy(tb.lines[insertAt:], newLines)
+		if len(newLines) > 0 {
+			tb.lines[insertAt+len(newLines)-1] += suffix
+		}
+	}
 }
 
 func (tb *TextBuffer) DeleteSelection() bool {

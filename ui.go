@@ -30,8 +30,9 @@ func (m Model) renderEditor() string {
 	cursor := m.textBuffer.GetCursor()
 	selection := m.textBuffer.GetSelection()
 
-	if len(m.highlightedContent) == len(lines) {
-		lines = m.highlightedContent
+	// Use highlighted lines if available and properly sized
+	if len(m.highlightedLines) == len(lines) {
+		lines = m.highlightedLines
 	}
 
 	visibleLines := m.getVisibleLines()

@@ -203,6 +203,10 @@ func handlePageKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) postMovementUpdate() {
 	m.ensureCursorVisible()
 	m.updateWordBounds()
+	// Update viewport position for lazy highlighting
+	m.viewportY = m.scrollOffset
+	// Trigger lazy syntax highlighting for visible area
+	m.applySyntaxHighlighting()
 }
 
 func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -240,6 +244,9 @@ func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// In a production system, you might want to log these or show user feedback
 		return m, nil
 	}
+	
+	// Invalidate syntax highlighting cache since content changed
+	m.invalidateHighlightCache()
 	
 	m.updateModified()
 	m.postMovementUpdate()
