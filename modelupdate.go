@@ -151,12 +151,12 @@ func handleArrowKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		return handleHomeEndKeys(m, msg)
 	}
-
+	
 	if err != nil {
 		// Silently handle errors to maintain UI responsiveness
 		return m, nil
 	}
-
+	
 	m.postMovementUpdate()
 	return m, nil
 }
@@ -190,12 +190,12 @@ func handlePageKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		return handleTextModification(m, msg)
 	}
-
+	
 	if err != nil {
 		// Silently handle errors to maintain UI responsiveness
 		return m, nil
 	}
-
+	
 	m.postMovementUpdate()
 	return m, nil
 }
@@ -233,14 +233,14 @@ func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
-
+	
 	// Handle any errors from TextBuffer operations
 	if err != nil {
 		// For now, we'll silently ignore errors to maintain UI responsiveness
 		// In a production system, you might want to log these or show user feedback
 		return m, nil
 	}
-
+	
 	m.updateModified()
 	m.postMovementUpdate()
 	return m, nil
@@ -315,57 +315,57 @@ func (m *Model) updateWordBounds() {
 }
 
 func handleShiftLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if err := m.textBuffer.MoveCursorDelta(0, -1, true); err != nil {
-		return m, nil
-	}
-	m.postMovementUpdate()
-	selText := m.textBuffer.GetSelectedText()
-	m.message = fmt.Sprintf("Selected %d characters", len(selText))
-	m.messageTime = time.Now()
-	return m, nil
+    if err := m.textBuffer.MoveCursorDelta(0, -1, true); err != nil {
+        return m, nil
+    }
+    m.postMovementUpdate()
+    selText := m.textBuffer.GetSelectedText()
+    m.message = fmt.Sprintf("Selected %d characters", len(selText))
+    m.messageTime = time.Now()
+    return m, nil
 }
 
 func handleShiftRight(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if err := m.textBuffer.MoveCursorDelta(0, 1, true); err != nil {
-		return m, nil
-	}
-	m.postMovementUpdate()
-	selText := m.textBuffer.GetSelectedText()
-	m.message = fmt.Sprintf("Selected %d characters", len(selText))
-	m.messageTime = time.Now()
-	return m, nil
+    if err := m.textBuffer.MoveCursorDelta(0, 1, true); err != nil {
+        return m, nil
+    }
+    m.postMovementUpdate()
+    selText := m.textBuffer.GetSelectedText()
+    m.message = fmt.Sprintf("Selected %d characters", len(selText))
+    m.messageTime = time.Now()
+    return m, nil
 }
 
 func handleShiftUp(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if err := m.textBuffer.MoveCursorDelta(-1, 0, true); err != nil {
-		return m, nil
-	}
-	m.postMovementUpdate()
-	selText := m.textBuffer.GetSelectedText()
-	m.message = fmt.Sprintf("Selected %d characters", len(selText))
-	m.messageTime = time.Now()
-	return m, nil
+    if err := m.textBuffer.MoveCursorDelta(-1, 0, true); err != nil {
+        return m, nil
+    }
+    m.postMovementUpdate()
+    selText := m.textBuffer.GetSelectedText()
+    m.message = fmt.Sprintf("Selected %d characters", len(selText))
+    m.messageTime = time.Now()
+    return m, nil
 }
 
 func handleShiftDown(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if err := m.textBuffer.MoveCursorDelta(1, 0, true); err != nil {
-		return m, nil
-	}
-	m.postMovementUpdate()
-	selText := m.textBuffer.GetSelectedText()
-	m.message = fmt.Sprintf("Selected %d characters", len(selText))
-	m.messageTime = time.Now()
-	return m, nil
+    if err := m.textBuffer.MoveCursorDelta(1, 0, true); err != nil {
+        return m, nil
+    }
+    m.postMovementUpdate()
+    selText := m.textBuffer.GetSelectedText()
+    m.message = fmt.Sprintf("Selected %d characters", len(selText))
+    m.messageTime = time.Now()
+    return m, nil
 }
 
 func handleAltLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveToWordBoundary(false, true)
-	m.postMovementUpdate()
-	return m, nil
+    m.textBuffer.MoveToWordBoundary(false, true)
+    m.postMovementUpdate()
+    return m, nil
 }
 
 func handleAltRight(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveToWordBoundary(true, true)
-	m.postMovementUpdate()
-	return m, nil
+    m.textBuffer.MoveToWordBoundary(true, true)
+    m.postMovementUpdate()
+    return m, nil
 }

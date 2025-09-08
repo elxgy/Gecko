@@ -57,7 +57,9 @@ func plainToAnsiIndex(ansiStr string, plainIndex int) int {
 			ansiPos++
 		}
 	}
-	return len(ansiStr)
+
+	// If we've reached the end, return the final position
+	return ansiPos
 }
 
 func stripAnsiCodes(s string) string {
@@ -134,7 +136,7 @@ func (m *Model) ensureCursorVisible() {
 		visibleContentWidth = 1
 	}
 
-	m.horizontalOffset = max(0, cursor.Column-visibleContentWidth/2)
+	m.horizontalOffset = max(0, cursor.Column - visibleContentWidth/2)
 
 	if cursor.Column < m.horizontalOffset {
 		m.horizontalOffset = cursor.Column
