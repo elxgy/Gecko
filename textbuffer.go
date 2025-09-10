@@ -255,7 +255,9 @@ func (tb *TextBuffer) calculatePartialHash(lines []string) uint64 {
 // validatePosition ensures a position is within valid bounds
 func (tb *TextBuffer) validatePosition(pos Position) error {
 	if len(tb.lines) == 0 {
-		return ErrEmptyBuffer
+		// Initialize buffer if it's empty
+		tb.lines = []string{""}
+		tb.cursor = Position{Line: 0, Column: 0}
 	}
 	if pos.Line < 0 || pos.Line >= len(tb.lines) {
 		return fmt.Errorf("%w: line %d out of range [0, %d)", ErrInvalidPosition, pos.Line, len(tb.lines))
@@ -377,8 +379,10 @@ func (tb *TextBuffer) MoveCursor(line, column int) error {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 
-	if len(tb.lines) == 0 || (len(tb.lines) == 1 && tb.lines[0] == "") {
-		return ErrEmptyBuffer
+	// Initialize buffer if it's empty
+	if len(tb.lines) == 0 {
+		tb.lines = []string{""}
+		tb.cursor = Position{Line: 0, Column: 0}
 	}
 
 	// Clamp values to valid ranges
@@ -404,8 +408,10 @@ func (tb *TextBuffer) MoveCursorDelta(deltaLine, deltaColumn int, extend bool) e
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 
-	if len(tb.lines) == 0 || (len(tb.lines) == 1 && tb.lines[0] == "") {
-		return ErrEmptyBuffer
+	// Initialize buffer if it's empty
+	if len(tb.lines) == 0 {
+		tb.lines = []string{""}
+		tb.cursor = Position{Line: 0, Column: 0}
 	}
 
 	if !extend && tb.selectAllOriginalCursor != nil {
@@ -585,8 +591,10 @@ func (tb *TextBuffer) InsertText(text string) error {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 
-	if len(tb.lines) == 0 || (len(tb.lines) == 1 && tb.lines[0] == "") {
-		return ErrEmptyBuffer
+	// Initialize buffer if it's empty
+	if len(tb.lines) == 0 {
+		tb.lines = []string{""}
+		tb.cursor = Position{Line: 0, Column: 0}
 	}
 
 	if err := tb.validatePosition(tb.cursor); err != nil {
@@ -661,22 +669,29 @@ func (tb *TextBuffer) InsertText(text string) error {
 
 // insertLinesEfficient inserts lines efficiently for large files
 func (tb *TextBuffer) insertLinesEfficient(insertAt int, newLines []string, suffix string) {
-	// Append new lines to the end first
-	tb.lines = append(tb.lines, newLines...)
+	if len(newLines) == 0 {
+		return
+	}
+	
+	// Create new slice with enough capacity
+	totalLines := len(tb.lines) + len(newLines)
+	newSlice := make([]string, 0, totalLines)
+	
+	// Copy lines before insertion point
+	newSlice = append(newSlice, tb.lines[:insertAt]...)
+	
+	// Add new lines
+	newSlice = append(newSlice, newLines...)
 	
 	// Add suffix to the last inserted line
 	if len(newLines) > 0 {
-		tb.lines[len(tb.lines)-1] += suffix
+		newSlice[insertAt+len(newLines)-1] += suffix
 	}
 	
-	// Move the tail to make room
-	if insertAt < len(tb.lines)-len(newLines) {
-		copy(tb.lines[insertAt+len(newLines):], tb.lines[insertAt:len(tb.lines)-len(newLines)])
-		copy(tb.lines[insertAt:], newLines)
-		if len(newLines) > 0 {
-			tb.lines[insertAt+len(newLines)-1] += suffix
-		}
-	}
+	// Copy lines after insertion point
+	newSlice = append(newSlice, tb.lines[insertAt:]...)
+	
+	tb.lines = newSlice
 }
 
 func (tb *TextBuffer) DeleteSelection() bool {
@@ -699,8 +714,10 @@ func (tb *TextBuffer) DeleteChar(backward bool) error {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 
-	if len(tb.lines) == 0 || (len(tb.lines) == 1 && tb.lines[0] == "") {
-		return ErrEmptyBuffer
+	// Initialize buffer if it's empty
+	if len(tb.lines) == 0 {
+		tb.lines = []string{""}
+		tb.cursor = Position{Line: 0, Column: 0}
 	}
 
 	if err := tb.validatePosition(tb.cursor); err != nil {

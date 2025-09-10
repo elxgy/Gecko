@@ -78,7 +78,7 @@ var keys = KeyMap{
 	),
 	FindPrev: key.NewBinding(
 		key.WithKeys("ctrl+l"),
-		key.WithHelp("ctrl+l", "find next"),
+		key.WithHelp("ctrl+l", "find previous"),
 	),
 	Delete: key.NewBinding(
 		key.WithKeys("backspace"),
