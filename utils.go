@@ -96,6 +96,7 @@ func (m *Model) jumpToCurrentResult() {
 		m.textBuffer.SetCursor(m.findResults[m.findIndex])
 
 		m.centerCursorOnScreen()
+		m.postMovementUpdate()
 
 		searchQuery := m.lastSearchQuery
 		if searchQuery != "" {

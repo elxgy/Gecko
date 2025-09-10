@@ -314,7 +314,7 @@ func handleSelectAll(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) updateWordBounds() {
 	// Only update word bounds if cursor position has changed
-	currentPos := m.textBuffer.cursor
+	currentPos := m.textBuffer.GetCursor()
 	if m.lastWordBoundsCursor.Line != currentPos.Line || m.lastWordBoundsCursor.Column != currentPos.Column {
 		m.currentWordStart, m.currentWordEnd = m.textBuffer.GetWordBoundsAtCursor()
 		m.lastWordBoundsCursor = currentPos

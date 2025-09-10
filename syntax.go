@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -156,9 +157,9 @@ func (h *Highlighter) highlightContent(ctx context.Context, content string) (str
 func (h *Highlighter) createCacheKey(lines []string, startLine, endLine int) string {
 	var keyBuilder strings.Builder
 	keyBuilder.WriteString("range:")
-	keyBuilder.WriteString(string(rune(startLine)))
+	keyBuilder.WriteString(strconv.Itoa(startLine))
 	keyBuilder.WriteString("-")
-	keyBuilder.WriteString(string(rune(endLine)))
+	keyBuilder.WriteString(strconv.Itoa(endLine))
 	keyBuilder.WriteString(":")
 	
 	// Add a hash of the content for cache invalidation

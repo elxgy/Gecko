@@ -74,9 +74,14 @@ func handleEnterKey(m Model) (tea.Model, tea.Cmd) {
 }
 
 func handleGoToLineEnter(m Model) (tea.Model, tea.Cmd) {
-	if line, err := strconv.Atoi(m.minibufferInput); err == nil {
-		m.textBuffer.GoToLine(line - 1)
-		m.ensureCursorVisible()
+	if line, err := strconv.Atoi(m.minibufferInput); err == nil && line > 0 {
+		totalLines := len(m.textBuffer.GetLines())
+		if line <= totalLines {
+			m.textBuffer.GoToLine(line - 1)
+			m.ensureCursorVisible()
+		} else {
+			m.setMessage(fmt.Sprintf("Line %d is beyond end of file (total: %d lines)", line, totalLines))
+		}
 	} else {
 		m.setMessage("Invalid line number")
 	}
