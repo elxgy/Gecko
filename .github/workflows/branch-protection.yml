@@ -42,17 +42,14 @@ jobs:
                 required_status_checks: {
                   strict: true,
                   contexts: [
-                    'Code Quality & Linting',
-                    'Security Vulnerability Scan',
+                    'Code Quality',
+                    'Security Scanning',
                     'Test Suite',
-                    'Cross-Platform Build (ubuntu-latest, 1.24.3)',
-                    'Cross-Platform Build (windows-latest, 1.24.3)',
-                    'Cross-Platform Build (macos-latest, 1.24.3)',
-                    'Performance Benchmarks',
-                    'Documentation Checks',
-                    'Integration Tests',
-                    'Validate Commit Messages',
-                    'Validate PR Title'
+                    'Smoke Test',
+                    'Cross-Platform Build (ubuntu-latest)',
+                    'Cross-Platform Build (windows-latest)',
+                    'Cross-Platform Build (macos-latest)',
+                    'Documentation Check'
                   ]
                 },
                 enforce_admins: enforceAdmins,

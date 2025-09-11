@@ -1,0 +1,32 @@
+{
+  "timeout": "30s",
+  "retryOn429": true,
+  "retryCount": 3,
+  "fallbackRetryDelay": "30s",
+  "aliveStatusCodes": [200, 206],
+  "ignorePatterns": [
+    {
+      "pattern": "^https://github\\.com/.*/commit/"
+    },
+    {
+      "pattern": "^https://github\\.com/.*/pull/"
+    },
+    {
+      "pattern": "^https://github\\.com/.*/issues/"
+    },
+    {
+      "pattern": "^mailto:"
+    },
+    {
+      "pattern": "^#"
+    }
+  ],
+  "httpHeaders": [
+    {
+      "urls": ["https://github.com"],
+      "headers": {
+        "Accept": "text/html"
+      }
+    }
+  ]
+}

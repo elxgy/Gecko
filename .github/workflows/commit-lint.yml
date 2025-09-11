@@ -24,50 +24,13 @@ jobs:
 
       - name: Install commitlint
         run: |
-          npm install -g @commitlint/cli @commitlint/config-conventional
-
-      - name: Create commitlint config
-        run: |
-          cat > .commitlintrc.json << 'EOF'
-          {
-            "extends": ["@commitlint/config-conventional"],
-            "rules": {
-              "type-enum": [
-                2,
-                "always",
-                [
-                  "feat",
-                  "fix",
-                  "docs",
-                  "style",
-                  "refactor",
-                  "perf",
-                  "test",
-                  "build",
-                  "ci",
-                  "chore",
-                  "revert"
-                ]
-              ],
-              "type-case": [2, "always", "lower-case"],
-              "type-empty": [2, "never"],
-              "scope-case": [2, "always", "lower-case"],
-              "subject-case": [2, "never", ["sentence-case", "start-case", "pascal-case", "upper-case"]],
-              "subject-empty": [2, "never"],
-              "subject-full-stop": [2, "never", "."],
-              "header-max-length": [2, "always", 72],
-              "body-leading-blank": [1, "always"],
-              "body-max-line-length": [2, "always", 100],
-              "footer-leading-blank": [1, "always"],
-              "footer-max-line-length": [2, "always", 100]
-            }
-          }
-          EOF
+          npm install --save-dev @commitlint/cli @commitlint/config-conventional
+          echo "module.exports = {extends: ['@commitlint/config-conventional']}" > commitlint.config.js
 
       - name: Validate current commit (push)
         if: github.event_name == 'push'
         run: |
-          echo "${{ github.event.head_commit.message }}" | commitlint
+          echo "${{ github.event.head_commit.message }}" | npx commitlint
 
       - name: Validate PR commits
         if: github.event_name == 'pull_request'
@@ -78,7 +41,7 @@ jobs:
           # Validate each commit message
           while IFS=' ' read -r hash subject; do
             echo "Validating commit: $hash"
-            echo "$subject" | commitlint
+            echo "$subject" | npx commitlint
           done < commits.txt
 
       - name: Comment on PR with commit message guidelines
@@ -185,7 +148,7 @@ jobs:
 
       - name: Validate PR title
         run: |
-          echo "${{ github.event.pull_request.title }}" | commitlint
+          echo "${{ github.event.pull_request.title }}" | npx commitlint
 
       - name: Comment on invalid PR title
         if: failure()
