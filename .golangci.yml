@@ -1,0 +1,280 @@
+# golangci-lint configuration for Gecko CLI Editor
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  skip-dirs:
+    - vendor
+    - .git
+  skip-files:
+    - ".*\.pb\.go$"
+    - ".*_generated\.go$"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true
+
+linters-settings:
+  # Cyclomatic complexity
+  cyclop:
+    max-complexity: 15
+    package-average: 10.0
+    skip-tests: false
+
+  # Duplicate code detection
+  dupl:
+    threshold: 100
+
+  # Error handling
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    exclude-functions:
+      - io/ioutil.ReadFile
+      - io.Copy(*bytes.Buffer)
+      - io.Copy(os.Stdout)
+
+  # Function length
+  funlen:
+    lines: 100
+    statements: 50
+
+  # Cognitive complexity
+  gocognit:
+    min-complexity: 20
+
+  # Constants detection
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+    ignore-tests: false
+    match-constant: true
+    numbers: false
+    min: 3
+    max: 3
+
+  # Code complexity
+  gocyclo:
+    min-complexity: 15
+
+  # Effective Go guidelines
+  gofmt:
+    simplify: true
+
+  # Import formatting
+  goimports:
+    local-prefixes: gecko
+
+  # Line length
+  lll:
+    line-length: 120
+    tab-width: 4
+
+  # Naming conventions
+  revive:
+    severity: warning
+    rules:
+      - name: exported
+        severity: error
+      - name: package-comments
+        severity: warning
+      - name: var-naming
+        severity: warning
+      - name: function-result-limit
+        severity: warning
+        arguments: [3]
+      - name: argument-limit
+        severity: warning
+        arguments: [5]
+      - name: function-length
+        severity: warning
+        arguments: [50, 100]
+      - name: max-public-structs
+        severity: warning
+        arguments: [10]
+
+  # Unused code detection
+  unused:
+    check-exported: false
+
+  # Whitespace issues
+  whitespace:
+    multi-if: false
+    multi-func: false
+
+  # Spelling
+  misspell:
+    locale: US
+    ignore-words:
+      - gecko
+      - bubbletea
+      - lipgloss
+      - chroma
+
+  # Struct tag validation
+  tagliatelle:
+    case:
+      rules:
+        json: snake
+        yaml: snake
+        xml: snake
+
+linters:
+  disable-all: true
+  enable:
+    # Enabled by default
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    
+    # Additional quality linters
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - cyclop
+    - dupl
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - forbidigo
+    - funlen
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - gofmt
+    - gofumpt
+    - goheader
+    - goimports
+    - gomnd
+    - gomoddirectives
+    - gomodguard
+    - goprintffuncname
+    - gosec
+    - lll
+    - makezero
+    - misspell
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - stylecheck
+    - tagliatelle
+    - tenv
+    - testpackage
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+
+  # Disabled linters (can be enabled as needed)
+  # - containedctx
+  # - contextcheck
+  # - decorder
+  # - depguard
+  # - dogsled
+  # - errchkjson
+  # - execinquery
+  # - exhaustivestruct
+  # - exhaustruct
+  # - forcetypeassert
+  # - gci
+  # - ginkgolinter
+  # - gocheckcompilerdirectives
+  # - gochecknoglobals
+  # - godox
+  # - goerr113
+  # - gofmt
+  # - gosmopolitan
+  # - grouper
+  # - importas
+  # - interfacebloat
+  # - ireturn
+  # - maintidx
+  # - nlreturn
+  # - nosprintfhostport
+  # - paralleltest
+  # - promlinter
+  # - reassign
+  # - testableexamples
+  # - usestdlibvars
+  # - varnamelen
+  # - wrapcheck
+  # - wsl
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gomnd
+        - funlen
+        - gocyclo
+        - gocognit
+        - dupl
+        - lll
+        - goconst
+    
+    # Exclude some staticcheck messages
+    - linters:
+        - staticcheck
+      text: "SA9003:"
+    
+    # Exclude lll issues for long lines with go:generate
+    - linters:
+        - lll
+      source: "^//go:generate "
+    
+    # Exclude godot for comments that don't end with a period
+    - linters:
+        - godot
+      source: "^//"
+
+  # Show only new issues created after git revision `REV`
+  # new-from-rev: HEAD~1
+  
+  # Maximum issues count per one linter. Set to 0 to disable. Default is 50.
+  max-issues-per-linter: 0
+  
+  # Maximum count of issues with the same text. Set to 0 to disable. Default is 3.
+  max-same-issues: 0
+
+  # Show only new issues created in git patch with set file path.
+  # new-from-patch: path/to/patch/file
+
+severity:
+  default-severity: error
+  case-sensitive: false
+  rules:
+    - linters:
+        - dupl
+        - gomnd
+        - goconst
+      severity: warning
+    - linters:
+        - errcheck
+        - gosec
+        - govet
+      severity: error
