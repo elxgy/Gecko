@@ -52,7 +52,7 @@ func NewModel(filename string) Model {
 
 	if filename != "" {
 		if data, err := os.ReadFile(filename); err == nil {
-			content = string(data)
+			content = normalizeLineEndings(string(data))
 			originalText = content
 		}
 	}
@@ -93,6 +93,10 @@ func (m Model) Init() tea.Cmd {
 }
 
 func main() {
+	// Initialize Windows terminal compatibility
+	enableWindowsANSI()
+	ensureUTF8Output()
+	
 	var filename string
 	if len(os.Args) > 1 {
 		filename = os.Args[1]
