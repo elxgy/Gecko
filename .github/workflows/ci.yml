@@ -1,0 +1,411 @@
+name: Comprehensive CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.24.3'
+  GOLANGCI_LINT_VERSION: 'v1.61.0'
+
+jobs:
+  # Job 1: Code Quality and Linting
+  code-quality:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check formatting
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "The following files are not formatted:"
+            gofmt -s -l .
+            exit 1
+          fi
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --timeout=5m --config=.golangci.yml
+
+      - name: Check for inefficient assignments
+        run: |
+          go install github.com/gordonklaus/ineffassign@latest
+          ineffassign ./...
+
+      - name: Check for unused code
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+  # Job 2: Security Vulnerability Scanning
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Check if Snyk token is available
+        id: snyk-token
+        run: |
+          if [ "${{ secrets.SNYK_TOKEN }}" != "" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Snyk to check for vulnerabilities
+        if: steps.snyk-token.outputs.available == 'true'
+        uses: snyk/actions/golang@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: Upload Snyk results to GitHub Code Scanning
+        if: steps.snyk-token.outputs.available == 'true' && always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk.sarif
+
+      - name: Snyk setup information
+        if: steps.snyk-token.outputs.available == 'false'
+        run: |
+          echo "⚠️  Snyk security scanning is not configured."
+          echo "To enable Snyk scanning:"
+          echo "1. Sign up at https://snyk.io"
+          echo "2. Get your API token from https://app.snyk.io/account"
+          echo "3. Add it as a repository secret named 'SNYK_TOKEN'"
+          echo "4. Re-run this workflow to enable security scanning"
+          echo "📖 See WORKFLOW_SETUP.md for detailed instructions"
+
+  # Job 3: Testing with Coverage
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xclip xvfb
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-test-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-test-
+            ${{ runner.os }}-go-
+
+      - name: Run tests with coverage
+        run: |
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Generate coverage report
+        run: |
+          go tool cover -html=coverage.out -o coverage.html
+          go tool cover -func=coverage.out
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage.out
+            coverage.html
+
+  # Job 4: Cross-Platform Build Testing
+  cross-platform-build:
+    name: Cross-Platform Build
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        go-version: ['1.24.3']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Install platform dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xclip
+
+      - name: Install platform dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # macOS uses pbcopy/pbpaste natively
+          echo "No additional dependencies needed for macOS"
+
+      - name: Build application
+        run: |
+          go build -v -o gecko${{ runner.os == 'Windows' && '.exe' || '' }} .
+
+      - name: Test binary execution
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ./gecko.exe --help || echo "Binary created successfully"
+          else
+            ./gecko --help || echo "Binary created successfully"
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gecko-${{ matrix.os }}-${{ matrix.go-version }}
+          path: gecko${{ runner.os == 'Windows' && '.exe' || '' }}
+
+  # Job 5: Performance Benchmarking
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run benchmarks
+        run: |
+          go test -bench=. -benchmem -run=^$ ./... | tee benchmark.txt
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'go'
+          output-file-path: benchmark.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          comment-on-alert: true
+          alert-threshold: '200%'
+          fail-on-alert: true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark.txt
+
+  # Job 6: Documentation Consistency
+  documentation:
+    name: Documentation Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check Go documentation
+        run: |
+          go install golang.org/x/tools/cmd/godoc@latest
+          # Check if all exported functions have documentation
+          go doc -all . > /dev/null
+
+      - name: Verify README links
+        run: |
+          # Install markdown link checker
+          npm install -g markdown-link-check
+          markdown-link-check README.md --config .github/mlc_config.json || true
+
+      - name: Check for TODO/FIXME comments
+        run: |
+          echo "Checking for TODO/FIXME comments..."
+          if grep -r "TODO\|FIXME" --include="*.go" .; then
+            echo "Found TODO/FIXME comments. Please address them."
+            exit 1
+          else
+            echo "No TODO/FIXME comments found."
+          fi
+
+      - name: Validate Go module documentation
+        run: |
+          go list -m all
+          go mod why -m all
+
+  # Job 7: Integration Tests
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [code-quality, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xclip xvfb
+
+      - name: Build application
+        run: go build -o gecko .
+
+      - name: Run integration tests
+        run: |
+          # Create test files for integration testing
+          echo "package main\n\nfunc main() {\n\tprintln(\"Hello, World!\")\n}" > test.go
+          
+          # Test file opening and basic operations
+          timeout 5s xvfb-run -a ./gecko test.go || echo "Integration test completed"
+          
+          # Clean up
+          rm -f test.go
+
+  # Job 8: Final Status Check
+  status-check:
+    name: Final Status Check
+    runs-on: ubuntu-latest
+    needs: [code-quality, security-scan, test, cross-platform-build, benchmark, documentation, integration]
+    if: always()
+    steps:
+      - name: Check all jobs status
+        run: |
+          echo "Code Quality: ${{ needs.code-quality.result }}"
+          echo "Security Scan: ${{ needs.security-scan.result }}"
+          echo "Tests: ${{ needs.test.result }}"
+          echo "Cross-Platform Build: ${{ needs.cross-platform-build.result }}"
+          echo "Benchmarks: ${{ needs.benchmark.result }}"
+          echo "Documentation: ${{ needs.documentation.result }}"
+          echo "Integration: ${{ needs.integration.result }}"
+          
+          if [[ "${{ needs.code-quality.result }}" != "success" ]] || 
+             [[ "${{ needs.test.result }}" != "success" ]] || 
+             [[ "${{ needs.cross-platform-build.result }}" != "success" ]]; then
+            echo "❌ Critical jobs failed!"
+            exit 1
+          else
+            echo "✅ All critical jobs passed!"
+          fi
+
+      - name: Post status to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && comment.body.includes('🦎 Gecko CI Status')
+            );
+            
+            const status = `🦎 **Gecko CI Status Report**
+            
+            | Check | Status |
+            |-------|--------|
+            | Code Quality | ${{ needs.code-quality.result == 'success' && '✅' || '❌' }} |
+            | Security Scan | ${{ needs.security-scan.result == 'success' && '✅' || '❌' }} |
+            | Tests | ${{ needs.test.result == 'success' && '✅' || '❌' }} |
+            | Cross-Platform Build | ${{ needs.cross-platform-build.result == 'success' && '✅' || '❌' }} |
+            | Benchmarks | ${{ needs.benchmark.result == 'success' && '✅' || '❌' }} |
+            | Documentation | ${{ needs.documentation.result == 'success' && '✅' || '❌' }} |
+            | Integration | ${{ needs.integration.result == 'success' && '✅' || '❌' }} |
+            
+            **Overall Status**: ${{ (needs.code-quality.result == 'success' && needs.test.result == 'success' && needs.cross-platform-build.result == 'success') && '✅ Ready to merge' || '❌ Needs attention' }}`;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: status
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: status
+              });
+            }

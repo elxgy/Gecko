@@ -1,0 +1,411 @@
+name: Branch Protection Setup
+
+# This workflow sets up branch protection rules
+# Run manually or when repository settings need to be updated
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: 'Branch to protect (default: main)'
+        required: false
+        default: 'main'
+        type: string
+      enforce_admins:
+        description: 'Enforce rules for admins'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  setup-branch-protection:
+    name: Setup Branch Protection Rules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Branch Protection
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branchName = '${{ github.event.inputs.branch_name }}' || 'main';
+            const enforceAdmins = ${{ github.event.inputs.enforce_admins }} || false;
+            
+            console.log(`Setting up branch protection for: ${branchName}`);
+            
+            try {
+              const protection = {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: branchName,
+                required_status_checks: {
+                  strict: true,
+                  contexts: [
+                    'Code Quality & Linting',
+                    'Security Vulnerability Scan',
+                    'Test Suite',
+                    'Cross-Platform Build (ubuntu-latest, 1.24.3)',
+                    'Cross-Platform Build (windows-latest, 1.24.3)',
+                    'Cross-Platform Build (macos-latest, 1.24.3)',
+                    'Performance Benchmarks',
+                    'Documentation Checks',
+                    'Integration Tests',
+                    'Validate Commit Messages',
+                    'Validate PR Title'
+                  ]
+                },
+                enforce_admins: enforceAdmins,
+                required_pull_request_reviews: {
+                  required_approving_review_count: 1,
+                  dismiss_stale_reviews: true,
+                  require_code_owner_reviews: true,
+                  require_last_push_approval: true
+                },
+                restrictions: null,
+                allow_force_pushes: false,
+                allow_deletions: false,
+                block_creations: false,
+                required_conversation_resolution: true
+              };
+              
+              const result = await github.rest.repos.updateBranchProtection(protection);
+              console.log('✅ Branch protection rules updated successfully!');
+              console.log('Protection settings:', JSON.stringify(result.data, null, 2));
+              
+            } catch (error) {
+              console.error('❌ Failed to update branch protection:', error.message);
+              
+              if (error.status === 403) {
+                console.error('Permission denied. Make sure the GitHub token has admin permissions.');
+              } else if (error.status === 404) {
+                console.error(`Branch '${branchName}' not found.`);
+              }
+              
+              throw error;
+            }
+
+      - name: Verify Branch Protection
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branchName = '${{ github.event.inputs.branch_name }}' || 'main';
+            
+            try {
+              const protection = await github.rest.repos.getBranchProtection({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: branchName
+              });
+              
+              console.log('✅ Current branch protection settings:');
+              console.log('Required status checks:', protection.data.required_status_checks?.contexts || 'None');
+              console.log('Required reviews:', protection.data.required_pull_request_reviews?.required_approving_review_count || 0);
+              console.log('Enforce admins:', protection.data.enforce_admins?.enabled || false);
+              console.log('Allow force pushes:', protection.data.allow_force_pushes?.enabled || false);
+              console.log('Allow deletions:', protection.data.allow_deletions?.enabled || false);
+              
+            } catch (error) {
+              console.error('❌ Failed to verify branch protection:', error.message);
+              throw error;
+            }
+
+  # Job to create CODEOWNERS file if it doesn't exist
+  setup-codeowners:
+    name: Setup CODEOWNERS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if CODEOWNERS exists
+        id: check-codeowners
+        run: |
+          if [ -f .github/CODEOWNERS ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create CODEOWNERS file
+        if: steps.check-codeowners.outputs.exists == 'false'
+        run: |
+          mkdir -p .github
+          cat > .github/CODEOWNERS << 'EOF'
+          # Global code owners for Gecko CLI Editor
+          # These owners will be requested for review when anyone opens a pull request.
+          
+          # Global owners
+          * @gecko-maintainers
+          
+          # Core application files
+          *.go @gecko-core-team
+          go.mod @gecko-core-team
+          go.sum @gecko-core-team
+          
+          # Configuration files
+          .github/ @gecko-devops-team
+          .golangci.yml @gecko-core-team
+          
+          # Documentation
+          *.md @gecko-docs-team
+          docs/ @gecko-docs-team
+          
+          # Build and CI/CD
+          .github/workflows/ @gecko-devops-team
+          Dockerfile* @gecko-devops-team
+          Makefile @gecko-devops-team
+          
+          # Security-sensitive files
+          .github/workflows/security.yml @gecko-security-team
+          go.mod @gecko-security-team
+          
+          # Performance-critical components
+          textbuffer.go @gecko-performance-team
+          syntax.go @gecko-performance-team
+          
+          # UI components
+          ui.go @gecko-ui-team
+          styles.go @gecko-ui-team
+          modelupdate.go @gecko-ui-team
+          EOF
+
+      - name: Commit CODEOWNERS if created
+        if: steps.check-codeowners.outputs.exists == 'false'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .github/CODEOWNERS
+          git commit -m "ci: add CODEOWNERS file for code review assignments" || exit 0
+          git push || echo "No changes to push"
+
+  # Job to create issue and PR templates
+  setup-templates:
+    name: Setup Issue and PR Templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create issue templates
+        run: |
+          mkdir -p .github/ISSUE_TEMPLATE
+          
+          # Bug report template
+          cat > .github/ISSUE_TEMPLATE/bug_report.yml << 'EOF'
+          name: 🐛 Bug Report
+          description: Report a bug in Gecko CLI Editor
+          title: "[Bug]: "
+          labels: ["bug", "needs-triage"]
+          body:
+            - type: markdown
+              attributes:
+                value: |
+                  Thanks for taking the time to fill out this bug report!
+                  
+            - type: input
+              id: version
+              attributes:
+                label: Gecko Version
+                description: What version of Gecko are you running?
+                placeholder: e.g., v1.0.0 or commit hash
+              validations:
+                required: true
+                
+            - type: dropdown
+              id: os
+              attributes:
+                label: Operating System
+                description: What operating system are you using?
+                options:
+                  - Linux
+                  - macOS
+                  - Windows
+                  - Other
+              validations:
+                required: true
+                
+            - type: input
+              id: terminal
+              attributes:
+                label: Terminal Emulator
+                description: What terminal emulator are you using?
+                placeholder: e.g., GNOME Terminal, iTerm2, Windows Terminal
+              validations:
+                required: true
+                
+            - type: textarea
+              id: description
+              attributes:
+                label: Bug Description
+                description: A clear and concise description of what the bug is.
+              validations:
+                required: true
+                
+            - type: textarea
+              id: steps
+              attributes:
+                label: Steps to Reproduce
+                description: Steps to reproduce the behavior
+                placeholder: |
+                  1. Open Gecko with '...'
+                  2. Press '...'
+                  3. See error
+              validations:
+                required: true
+                
+            - type: textarea
+              id: expected
+              attributes:
+                label: Expected Behavior
+                description: A clear and concise description of what you expected to happen.
+              validations:
+                required: true
+                
+            - type: textarea
+              id: actual
+              attributes:
+                label: Actual Behavior
+                description: A clear and concise description of what actually happened.
+              validations:
+                required: true
+                
+            - type: textarea
+              id: logs
+              attributes:
+                label: Error Logs
+                description: If applicable, add any error messages or logs.
+                render: shell
+                
+            - type: textarea
+              id: additional
+              attributes:
+                label: Additional Context
+                description: Add any other context about the problem here.
+          EOF
+          
+          # Feature request template
+          cat > .github/ISSUE_TEMPLATE/feature_request.yml << 'EOF'
+          name: 🚀 Feature Request
+          description: Suggest a new feature for Gecko CLI Editor
+          title: "[Feature]: "
+          labels: ["enhancement", "needs-triage"]
+          body:
+            - type: markdown
+              attributes:
+                value: |
+                  Thanks for suggesting a new feature!
+                  
+            - type: textarea
+              id: problem
+              attributes:
+                label: Problem Description
+                description: Is your feature request related to a problem? Please describe.
+                placeholder: I'm always frustrated when...
+              validations:
+                required: true
+                
+            - type: textarea
+              id: solution
+              attributes:
+                label: Proposed Solution
+                description: Describe the solution you'd like to see.
+              validations:
+                required: true
+                
+            - type: textarea
+              id: alternatives
+              attributes:
+                label: Alternative Solutions
+                description: Describe any alternative solutions or features you've considered.
+                
+            - type: dropdown
+              id: priority
+              attributes:
+                label: Priority
+                description: How important is this feature to you?
+                options:
+                  - Low - Nice to have
+                  - Medium - Would improve workflow
+                  - High - Critical for productivity
+              validations:
+                required: true
+                
+            - type: textarea
+              id: additional
+              attributes:
+                label: Additional Context
+                description: Add any other context, mockups, or examples about the feature request here.
+          EOF
+
+      - name: Create PR template
+        run: |
+          cat > .github/pull_request_template.md << 'EOF'
+          ## 📋 Description
+          
+          <!-- Provide a brief description of the changes in this PR -->
+          
+          ## 🔗 Related Issues
+          
+          <!-- Link to related issues using "Fixes #123" or "Closes #123" -->
+          
+          ## 🧪 Type of Change
+          
+          <!-- Mark the relevant option with an "x" -->
+          
+          - [ ] 🐛 Bug fix (non-breaking change which fixes an issue)
+          - [ ] ✨ New feature (non-breaking change which adds functionality)
+          - [ ] 💥 Breaking change (fix or feature that would cause existing functionality to not work as expected)
+          - [ ] 📚 Documentation update
+          - [ ] 🎨 Style/formatting changes
+          - [ ] ♻️ Code refactoring
+          - [ ] ⚡ Performance improvements
+          - [ ] 🧪 Test additions or modifications
+          - [ ] 🔧 Build/CI changes
+          - [ ] 🧹 Chore (maintenance, dependencies, etc.)
+          
+          ## 🧪 Testing
+          
+          <!-- Describe the tests you ran and how to reproduce them -->
+          
+          - [ ] Unit tests pass
+          - [ ] Integration tests pass
+          - [ ] Manual testing completed
+          - [ ] Cross-platform testing (if applicable)
+          
+          **Test Configuration:**
+          - OS: 
+          - Go version: 
+          - Terminal: 
+          
+          ## 📸 Screenshots (if applicable)
+          
+          <!-- Add screenshots to help explain your changes -->
+          
+          ## ✅ Checklist
+          
+          <!-- Mark completed items with an "x" -->
+          
+          - [ ] My code follows the project's style guidelines
+          - [ ] I have performed a self-review of my code
+          - [ ] I have commented my code, particularly in hard-to-understand areas
+          - [ ] I have made corresponding changes to the documentation
+          - [ ] My changes generate no new warnings
+          - [ ] I have added tests that prove my fix is effective or that my feature works
+          - [ ] New and existing unit tests pass locally with my changes
+          - [ ] Any dependent changes have been merged and published
+          - [ ] I have checked my code and corrected any misspellings
+          
+          ## 📝 Additional Notes
+          
+          <!-- Add any additional notes, concerns, or context here -->
+          EOF
+
+      - name: Commit templates if created
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .github/
+          git commit -m "ci: add issue and PR templates" || exit 0
+          git push || echo "No changes to push"
