@@ -2,12 +2,9 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
-	"unsafe"
 )
 
 func max(a, b int) int {
@@ -207,37 +204,7 @@ func convertLineEndingsForOS(content string) string {
 	}
 }
 
-// enableWindowsANSI enables ANSI escape sequence processing on Windows terminals
-func enableWindowsANSI() {
-	if runtime.GOOS == "windows" {
-		// Enable ANSI escape sequences on Windows 10+
-		kernel32 := syscall.NewLazyDLL("kernel32.dll")
-		getStdHandle := kernel32.NewProc("GetStdHandle")
-		setConsoleMode := kernel32.NewProc("SetConsoleMode")
-		getConsoleMode := kernel32.NewProc("GetConsoleMode")
-		
-		// Get stdout handle
-		handle, _, _ := getStdHandle.Call(uintptr(^uint32(10) + 1)) // STD_OUTPUT_HANDLE = -11
-		
-		// Get current console mode
-		var mode uint32
-		getConsoleMode.Call(handle, uintptr(unsafe.Pointer(&mode)))
-		
-		// Enable ANSI escape sequences (ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004)
-		mode |= 0x0004
-		setConsoleMode.Call(handle, uintptr(mode))
-	}
-}
 
-// ensureUTF8Output ensures proper UTF-8 output on Windows terminals
-func ensureUTF8Output() {
-	if runtime.GOOS == "windows" {
-		// Set console output code page to UTF-8 (65001)
-		kernel32 := syscall.NewLazyDLL("kernel32.dll")
-		setConsoleOutputCP := kernel32.NewProc("SetConsoleOutputCP")
-		setConsoleOutputCP.Call(uintptr(65001))
-	}
-}
 
 func (m Model) saveFile() error {
 	content := m.textBuffer.GetContent()
@@ -246,43 +213,7 @@ func (m Model) saveFile() error {
 	return os.WriteFile(m.filename, []byte(content), 0644)
 }
 
-func copyToClipboard(text string) error {
-	switch runtime.GOOS {
-	case "windows":
-		cmd := exec.Command("powershell", "-command", "Set-Clipboard -Value $args[0]", text)
-		return cmd.Run()
-	case "darwin":
-		cmd := exec.Command("pbcopy")
-		cmd.Stdin = strings.NewReader(text)
-		return cmd.Run()
-	default: // linux and others
-		cmd := exec.Command("xclip", "-selection", "clipboard")
-		cmd.Stdin = strings.NewReader(text)
-		return cmd.Run()
-	}
-}
 
-func pasteFromClipboard() (string, error) {
-	switch runtime.GOOS {
-	case "windows":
-		cmd := exec.Command("powershell", "-command", "Get-Clipboard")
-		output, err := cmd.Output()
-		if err != nil {
-			return "", err
-		}
-		// Remove trailing CRLF that PowerShell adds
-		result := strings.TrimSuffix(string(output), "\r\n")
-		return result, nil
-	case "darwin":
-		cmd := exec.Command("pbpaste")
-		output, err := cmd.Output()
-		return string(output), err
-	default: // linux and others
-		cmd := exec.Command("xclip", "-selection", "clipboard", "-o")
-		output, err := cmd.Output()
-		return string(output), err
-	}
-}
 
 func (m *Model) updateModified() {
 	m.modified = m.textBuffer.GetContent() != m.originalText
