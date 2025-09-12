@@ -74,47 +74,68 @@ func (h *Highlighter) Highlight(content string) (string, error) {
 
 // HighlightLines highlights specific lines with caching for performance
 func (h *Highlighter) HighlightLines(ctx context.Context, lines []string, startLine, endLine int) ([]string, error) {
-	// Validate and clamp bounds to prevent slice out of range panics
 	if len(lines) == 0 {
 		return []string{}, nil
 	}
-	
+
+	startLine, endLine = h.validateAndClampBounds(lines, startLine, endLine)
+	cacheKey := h.createCacheKey(lines, startLine, endLine)
+
+	// Try to get from cache first
+	if cachedResult := h.getCachedResult(cacheKey); cachedResult != nil {
+		return cachedResult, nil
+	}
+
+	// Highlight and cache the result
+	return h.highlightAndCache(ctx, lines, startLine, endLine, cacheKey)
+}
+
+// validateAndClampBounds validates and clamps the line bounds to prevent out of range errors
+func (h *Highlighter) validateAndClampBounds(lines []string, startLine, endLine int) (int, int) {
+	linesLen := len(lines)
+
 	// Clamp startLine to valid range
 	if startLine < 0 {
 		startLine = 0
 	}
-	if startLine >= len(lines) {
-		startLine = len(lines) - 1
+	if startLine >= linesLen {
+		startLine = linesLen - 1
 	}
-	
+
 	// Clamp endLine to valid range
 	if endLine < 0 {
 		endLine = 0
 	}
-	if endLine >= len(lines) {
-		endLine = len(lines) - 1
+	if endLine >= linesLen {
+		endLine = linesLen - 1
 	}
-	
+
 	// Ensure startLine <= endLine
 	if startLine > endLine {
 		startLine, endLine = endLine, startLine
 	}
 
-	// Create cache key based on line range and content hash
-	cacheKey := h.createCacheKey(lines, startLine, endLine)
-	
+	return startLine, endLine
+}
+
+// getCachedResult retrieves a cached highlighting result if valid
+func (h *Highlighter) getCachedResult(cacheKey string) []string {
 	h.mu.RLock()
+	defer h.mu.RUnlock()
+
 	if cached, exists := h.cache[cacheKey]; exists {
 		// Check if cache is still valid (within 5 seconds)
 		if time.Since(cached.timestamp) < 5*time.Second {
-			h.mu.RUnlock()
-			return strings.Split(cached.content, "\n"), nil
+			return strings.Split(cached.content, "\n")
 		}
 	}
-	h.mu.RUnlock()
+	return nil
+}
 
+// highlightAndCache performs highlighting and caches the result
+func (h *Highlighter) highlightAndCache(ctx context.Context, lines []string, startLine, endLine int, cacheKey string) ([]string, error) {
 	// Extract the range of lines to highlight
-	lineRange := lines[startLine:endLine+1]
+	lineRange := lines[startLine : endLine+1]
 	content := strings.Join(lineRange, "\n")
 
 	// Highlight the content
@@ -161,7 +182,7 @@ func (h *Highlighter) createCacheKey(lines []string, startLine, endLine int) str
 	keyBuilder.WriteString("-")
 	keyBuilder.WriteString(strconv.Itoa(endLine))
 	keyBuilder.WriteString(":")
-	
+
 	// Add a hash of the content for cache invalidation
 	for i := startLine; i <= endLine && i < len(lines); i++ {
 		if i > startLine {
@@ -169,7 +190,7 @@ func (h *Highlighter) createCacheKey(lines []string, startLine, endLine int) str
 		}
 		keyBuilder.WriteString(lines[i])
 	}
-	
+
 	return keyBuilder.String()
 }
 
@@ -224,25 +245,41 @@ func (h *Highlighter) ClearCache() {
 
 // applySyntaxHighlighting applies lazy syntax highlighting only to visible lines
 func (m *Model) applySyntaxHighlighting() {
-	if m.highlighter == nil {
+	if !m.canApplyHighlighting() {
 		return
 	}
 
-	// Get a thread-safe copy of the lines to prevent race conditions
 	lines := m.textBuffer.GetLines()
-	if len(lines) == 0 {
+	visibleStart, visibleEnd := m.calculateVisibleRange()
+
+	if !m.isValidVisibleRange(visibleStart, visibleEnd, len(lines)) {
 		return
 	}
 
-	// Calculate visible line range with buffer
-	visibleStart, visibleEnd := m.calculateVisibleRange()
-	
-	// Additional safety check to ensure bounds are valid
-	if visibleStart < 0 || visibleEnd >= len(lines) || visibleStart > visibleEnd {
-		slog.Warn("Invalid visible range calculated", "start", visibleStart, "end", visibleEnd, "totalLines", len(lines))
-		return
+	m.performHighlighting(lines, visibleStart, visibleEnd)
+}
+
+// canApplyHighlighting checks if highlighting can be applied
+func (m *Model) canApplyHighlighting() bool {
+	if m.highlighter == nil {
+		return false
 	}
-	
+
+	lines := m.textBuffer.GetLines()
+	return len(lines) > 0
+}
+
+// isValidVisibleRange validates the calculated visible range
+func (m *Model) isValidVisibleRange(start, end, totalLines int) bool {
+	if start < 0 || end >= totalLines || start > end {
+		slog.Warn("Invalid visible range calculated", "start", start, "end", end, "totalLines", totalLines)
+		return false
+	}
+	return true
+}
+
+// performHighlighting executes the highlighting process with timeout
+func (m *Model) performHighlighting(lines []string, visibleStart, visibleEnd int) {
 	// Use context with timeout to prevent hanging
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -266,12 +303,12 @@ func (m *Model) calculateVisibleRange() (start, end int) {
 	}
 
 	// Calculate visible area with buffer for smooth scrolling
-	bufferSize := 10 // Lines to highlight beyond visible area
+	bufferSize := 10               // Lines to highlight beyond visible area
 	viewportHeight := m.height - 2 // Account for status bar
-	
+
 	start = max(0, m.viewportY-bufferSize)
 	end = min(totalLines-1, m.viewportY+viewportHeight+bufferSize)
-	
+
 	// Ensure start <= end and both are within valid bounds
 	if start >= totalLines {
 		start = totalLines - 1
@@ -282,7 +319,7 @@ func (m *Model) calculateVisibleRange() (start, end int) {
 	if start > end {
 		start = end
 	}
-	
+
 	return start, end
 }
 

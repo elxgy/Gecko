@@ -8,35 +8,34 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-
 type Model struct {
-	textBuffer          *TextBuffer
-	filename            string
-	modified            bool
-	originalText        string
-	width               int
-	height              int
-	viewportY           int // Current viewport position for lazy highlighting
-	showHelp            bool
-	lastSaved           time.Time
-	message             string
-	messageTime         time.Time
-	clipboard           string
-	scrollOffset        int
-	horizontalOffset    int
-	minibufferType      MinibufferType
-	minibufferInput     string
-	minibufferCursorPos int
-	findResults         []Position
-	findIndex           int
-	lastSearchQuery     string
-	searchResultsOffset int
-	maxResultsDisplay   int
-	highlighter         *Highlighter
-	highlightedLines    []string // Lazy highlighted lines
-	currentWordStart    int
-	currentWordEnd      int
-	cursorVisible       bool
+	textBuffer           *TextBuffer
+	filename             string
+	modified             bool
+	originalText         string
+	width                int
+	height               int
+	viewportY            int // Current viewport position for lazy highlighting
+	showHelp             bool
+	lastSaved            time.Time
+	message              string
+	messageTime          time.Time
+	clipboard            string
+	scrollOffset         int
+	horizontalOffset     int
+	minibufferType       MinibufferType
+	minibufferInput      string
+	minibufferCursorPos  int
+	findResults          []Position
+	findIndex            int
+	lastSearchQuery      string
+	searchResultsOffset  int
+	maxResultsDisplay    int
+	highlighter          *Highlighter
+	highlightedLines     []string // Lazy highlighted lines
+	currentWordStart     int
+	currentWordEnd       int
+	cursorVisible        bool
 	lastWordBoundsCursor Position
 }
 
@@ -58,32 +57,32 @@ func NewModel(filename string) Model {
 	}
 
 	textBuffer := NewTextBuffer(content)
-    model := Model{
-        scrollOffset:      0,
-        horizontalOffset:  0,
-        textBuffer:        textBuffer,
-        filename:          filename,
-        originalText:      originalText,
-        modified:          false,
-        findResults:       []Position{},
-        findIndex:         -1,
-        maxResultsDisplay: 8,
-        highlighter:       NewHighlighter(filename),
-        currentWordStart:  -1,
-        currentWordEnd:    -1,
-        lastWordBoundsCursor: Position{Line: -1, Column: -1},
-    }
+	model := Model{
+		scrollOffset:         0,
+		horizontalOffset:     0,
+		textBuffer:           textBuffer,
+		filename:             filename,
+		originalText:         originalText,
+		modified:             false,
+		findResults:          []Position{},
+		findIndex:            -1,
+		maxResultsDisplay:    8,
+		highlighter:          NewHighlighter(filename),
+		currentWordStart:     -1,
+		currentWordEnd:       -1,
+		lastWordBoundsCursor: Position{Line: -1, Column: -1},
+	}
 
-    model.applySyntaxHighlighting()
-    model.ensureCursorVisible()
-    model.updateWordBounds()
-    return model
+	model.applySyntaxHighlighting()
+	model.ensureCursorVisible()
+	model.updateWordBounds()
+	return model
 }
 
 type blinkMsg time.Time
 
 func blinkTick() tea.Cmd {
-	return tea.Tick(500 * time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
 		return blinkMsg(t)
 	})
 }
@@ -96,7 +95,7 @@ func main() {
 	// Initialize Windows terminal compatibility
 	enableWindowsANSI()
 	ensureUTF8Output()
-	
+
 	var filename string
 	if len(os.Args) > 1 {
 		filename = os.Args[1]

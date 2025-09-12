@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// ============================================================================
+// Mathematical Utilities
+// ============================================================================
+
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -31,6 +35,10 @@ func clamp(value, min, max int) int {
 	return value
 }
 
+// ============================================================================
+// ANSI Code Processing
+// ============================================================================
+
 func plainToAnsiIndex(ansiStr string, plainIndex int) int {
 	if plainIndex <= 0 {
 		return 0
@@ -40,15 +48,8 @@ func plainToAnsiIndex(ansiStr string, plainIndex int) int {
 	ansiPos := 0
 
 	for ansiPos < len(ansiStr) {
-		if ansiPos < len(ansiStr) && ansiStr[ansiPos] == '\x1b' {
-			// Skip ANSI escape sequence
-			ansiPos++ // Skip the escape character
-			for ansiPos < len(ansiStr) && ansiStr[ansiPos] != 'm' {
-				ansiPos++
-			}
-			if ansiPos < len(ansiStr) {
-				ansiPos++ // Skip the 'm'
-			}
+		if isAnsiEscapeStart(ansiStr, ansiPos) {
+			ansiPos = skipAnsiSequence(ansiStr, ansiPos)
 		} else {
 			if plainPos == plainIndex {
 				return ansiPos
@@ -58,8 +59,22 @@ func plainToAnsiIndex(ansiStr string, plainIndex int) int {
 		}
 	}
 
-	// If we've reached the end, return the final position
 	return ansiPos
+}
+
+func isAnsiEscapeStart(s string, pos int) bool {
+	return pos < len(s) && s[pos] == '\x1b'
+}
+
+func skipAnsiSequence(s string, pos int) int {
+	pos++ // Skip the escape character
+	for pos < len(s) && s[pos] != 'm' {
+		pos++
+	}
+	if pos < len(s) {
+		pos++ // Skip the 'm'
+	}
+	return pos
 }
 
 func stripAnsiCodes(s string) string {
@@ -83,6 +98,10 @@ func stripAnsiCodes(s string) string {
 	return b.String()
 }
 
+// ============================================================================
+// Search and Find Operations
+// ============================================================================
+
 func (m *Model) adjustResultsOffset() {
 	if m.findIndex < m.searchResultsOffset {
 		m.searchResultsOffset = m.findIndex
@@ -92,25 +111,39 @@ func (m *Model) adjustResultsOffset() {
 }
 
 func (m *Model) jumpToCurrentResult() {
-	if len(m.findResults) > 0 && m.findIndex >= 0 && m.findIndex < len(m.findResults) {
-		m.textBuffer.SetCursor(m.findResults[m.findIndex])
-
-		m.centerCursorOnScreen()
-		m.postMovementUpdate()
-
-		searchQuery := m.lastSearchQuery
-		if searchQuery != "" {
-			endPos := Position{
-				Line:   m.findResults[m.findIndex].Line,
-				Column: m.findResults[m.findIndex].Column + len(searchQuery),
-			}
-			m.textBuffer.SetSelection(&Selection{
-				Start: m.findResults[m.findIndex],
-				End:   endPos,
-			})
-		}
+	if !m.hasValidFindResult() {
+		return
 	}
+
+	m.textBuffer.SetCursor(m.findResults[m.findIndex])
+	m.centerCursorOnScreen()
+	m.postMovementUpdate()
+	m.selectCurrentSearchResult()
 }
+
+func (m *Model) hasValidFindResult() bool {
+	return len(m.findResults) > 0 && m.findIndex >= 0 && m.findIndex < len(m.findResults)
+}
+
+func (m *Model) selectCurrentSearchResult() {
+	searchQuery := m.lastSearchQuery
+	if searchQuery == "" {
+		return
+	}
+
+	endPos := Position{
+		Line:   m.findResults[m.findIndex].Line,
+		Column: m.findResults[m.findIndex].Column + len(searchQuery),
+	}
+	m.textBuffer.SetSelection(&Selection{
+		Start: m.findResults[m.findIndex],
+		End:   endPos,
+	})
+}
+
+// ============================================================================
+// Cursor and Viewport Management
+// ============================================================================
 
 func (m *Model) ensureCursorVisible() {
 	cursor := m.textBuffer.GetCursor()
@@ -121,6 +154,11 @@ func (m *Model) ensureCursorVisible() {
 		return
 	}
 
+	m.adjustVerticalScroll(cursor, visibleLines)
+	m.adjustHorizontalScroll(cursor)
+}
+
+func (m *Model) adjustVerticalScroll(cursor Position, visibleLines int) {
 	if cursor.Line < m.scrollOffset {
 		m.scrollOffset = cursor.Line
 	} else if cursor.Line >= m.scrollOffset+visibleLines {
@@ -130,14 +168,11 @@ func (m *Model) ensureCursorVisible() {
 	if m.scrollOffset < 0 {
 		m.scrollOffset = 0
 	}
+}
 
-	// Horizontal scrolling
-	visibleContentWidth := m.width - 9 // borders 2 + padding 2 + lineNum 4 + space 1
-	if visibleContentWidth < 1 {
-		visibleContentWidth = 1
-	}
-
-	m.horizontalOffset = max(0, cursor.Column - visibleContentWidth/2)
+func (m *Model) adjustHorizontalScroll(cursor Position) {
+	visibleContentWidth := m.calculateVisibleContentWidth()
+	m.horizontalOffset = max(0, cursor.Column-visibleContentWidth/2)
 
 	if cursor.Column < m.horizontalOffset {
 		m.horizontalOffset = cursor.Column
@@ -148,25 +183,34 @@ func (m *Model) ensureCursorVisible() {
 	}
 }
 
+func (m *Model) calculateVisibleContentWidth() int {
+	visibleContentWidth := m.width - 9 // borders 2 + padding 2 + lineNum 4 + space 1
+	if visibleContentWidth < 1 {
+		return 1
+	}
+	return visibleContentWidth
+}
+
 func (m *Model) centerCursorOnScreen() {
 	cursor := m.textBuffer.GetCursor()
 	visibleLines := m.getVisibleLines()
 	totalLines := len(m.textBuffer.GetLines())
 
-	targetOffset := cursor.Line - visibleLines/2
-	if targetOffset < 0 {
-		targetOffset = 0
-	}
+	targetOffset := m.calculateCenterOffset(cursor.Line, visibleLines)
+	maxOffset := m.calculateMaxOffset(totalLines, visibleLines)
+	m.scrollOffset = clamp(targetOffset, 0, maxOffset)
+}
 
+func (m *Model) calculateCenterOffset(cursorLine, visibleLines int) int {
+	return cursorLine - visibleLines/2
+}
+
+func (m *Model) calculateMaxOffset(totalLines, visibleLines int) int {
 	maxOffset := totalLines - visibleLines
 	if maxOffset < 0 {
-		maxOffset = 0
+		return 0
 	}
-	if targetOffset > maxOffset {
-		targetOffset = maxOffset
-	}
-
-	m.scrollOffset = targetOffset
+	return maxOffset
 }
 
 func (m Model) normalizeSelection(selection *Selection) (Position, Position) {
@@ -184,9 +228,12 @@ func (m Model) normalizeSelection(selection *Selection) (Position, Position) {
 	return start, end
 }
 
+// ============================================================================
+// Text Processing and Line Ending Utilities
+// ============================================================================
+
 // normalizeLineEndings converts different line ending formats to Unix format (LF)
 func normalizeLineEndings(content string) string {
-	// Replace CRLF with LF, then CR with LF
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
 	return content
@@ -196,24 +243,25 @@ func normalizeLineEndings(content string) string {
 func convertLineEndingsForOS(content string) string {
 	switch runtime.GOOS {
 	case "windows":
-		// Convert LF to CRLF for Windows
 		return strings.ReplaceAll(content, "\n", "\r\n")
 	default:
-		// Keep LF for Unix-like systems
 		return content
 	}
 }
 
-
+// ============================================================================
+// File Operations
+// ============================================================================
 
 func (m Model) saveFile() error {
 	content := m.textBuffer.GetContent()
-	// Convert line endings to match the target OS
 	content = convertLineEndingsForOS(content)
 	return os.WriteFile(m.filename, []byte(content), 0644)
 }
 
-
+// ============================================================================
+// Model State Management
+// ============================================================================
 
 func (m *Model) updateModified() {
 	m.modified = m.textBuffer.GetContent() != m.originalText

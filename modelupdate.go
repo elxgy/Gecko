@@ -178,19 +178,13 @@ func (m Model) handlePageKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) postMovementUpdate() {
 	m.ensureCursorVisible()
 	m.updateWordBounds()
-	// Update viewport position for lazy highlighting
 	m.viewportY = m.scrollOffset
-	// Trigger lazy syntax highlighting for visible area
 	m.applySyntaxHighlighting()
 }
 
-// recalculateLayout forces a recalculation of UI layout after window resize
 func (m *Model) recalculateLayout() {
-	// Ensure cursor remains visible with new dimensions
 	m.ensureCursorVisible()
-	// Update any cached layout calculations that depend on window size
-	// The getVisibleLines() function will automatically use the new m.height
-	// and getMinibufferHeight() for proper layout calculation
+
 }
 
 // handleTextInput processes text modification keys
@@ -287,6 +281,7 @@ func handleGoToLine(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.minibufferType = MinibufferGoToLine
 	m.minibufferInput = ""
 	m.minibufferCursorPos = 0
+	m.postMovementUpdate()
 	return m, nil
 }
 
@@ -363,7 +358,7 @@ func (m Model) handleShiftMovement(lineDelta, columnDelta int) (tea.Model, tea.C
 	if err := m.textBuffer.MoveCursorDelta(lineDelta, columnDelta, true); err != nil {
 		return m, nil
 	}
-	
+
 	m.postMovementUpdate()
 	return m, nil
 }

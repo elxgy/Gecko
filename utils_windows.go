@@ -16,14 +16,14 @@ func enableWindowsANSI() {
 	getStdHandle := kernel32.NewProc("GetStdHandle")
 	setConsoleMode := kernel32.NewProc("SetConsoleMode")
 	getConsoleMode := kernel32.NewProc("GetConsoleMode")
-	
+
 	// Get stdout handle
 	handle, _, _ := getStdHandle.Call(uintptr(^uint32(10) + 1)) // STD_OUTPUT_HANDLE = -11
-	
+
 	// Get current console mode
 	var mode uint32
 	getConsoleMode.Call(handle, uintptr(unsafe.Pointer(&mode)))
-	
+
 	// Enable ANSI escape sequences (ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004)
 	mode |= 0x0004
 	setConsoleMode.Call(handle, uintptr(mode))

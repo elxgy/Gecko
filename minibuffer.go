@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-
 type MinibufferType int
 
 const (
@@ -145,11 +144,28 @@ func handleNavigationKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func handleEditingKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.minibufferType != MinibufferFind && m.minibufferType != MinibufferGoToLine {
+	if !isInputMinibuffer(m.minibufferType) {
 		return m, nil
 	}
 
 	switch msg.Type {
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.handleTextDeletion(msg.Type)
+	case tea.KeyLeft, tea.KeyRight, tea.KeyHome, tea.KeyEnd:
+		m.handleCursorMovement(msg.Type)
+	}
+
+	return m, nil
+}
+
+// isInputMinibuffer checks if the current minibuffer type accepts text input
+func isInputMinibuffer(minibufferType MinibufferType) bool {
+	return minibufferType == MinibufferFind || minibufferType == MinibufferGoToLine
+}
+
+// handleTextDeletion processes backspace and delete operations
+func (m *Model) handleTextDeletion(keyType tea.KeyType) {
+	switch keyType {
 	case tea.KeyBackspace:
 		if m.minibufferCursorPos > 0 {
 			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos-1] + m.minibufferInput[m.minibufferCursorPos:]
@@ -159,6 +175,12 @@ func handleEditingKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.minibufferCursorPos < len(m.minibufferInput) {
 			m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + m.minibufferInput[m.minibufferCursorPos+1:]
 		}
+	}
+}
+
+// handleCursorMovement processes cursor navigation operations
+func (m *Model) handleCursorMovement(keyType tea.KeyType) {
+	switch keyType {
 	case tea.KeyLeft:
 		if m.minibufferCursorPos > 0 {
 			m.minibufferCursorPos--
@@ -172,17 +194,22 @@ func handleEditingKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnd:
 		m.minibufferCursorPos = len(m.minibufferInput)
 	}
-
-	return m, nil
 }
 
 func handleTextInput(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if (m.minibufferType == MinibufferFind || m.minibufferType == MinibufferGoToLine) && len(msg.Runes) > 0 {
-		char := string(msg.Runes)
-		m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + char + m.minibufferInput[m.minibufferCursorPos:]
-		m.minibufferCursorPos++
+	if !isInputMinibuffer(m.minibufferType) || len(msg.Runes) == 0 {
+		return m, nil
 	}
+
+	char := string(msg.Runes)
+	m.insertTextAtCursor(char)
 	return m, nil
+}
+
+// insertTextAtCursor inserts text at the current cursor position
+func (m *Model) insertTextAtCursor(text string) {
+	m.minibufferInput = m.minibufferInput[:m.minibufferCursorPos] + text + m.minibufferInput[m.minibufferCursorPos:]
+	m.minibufferCursorPos += len(text)
 }
 
 func (m Model) renderMinibuffer() string {
@@ -198,36 +225,22 @@ func (m Model) renderMinibuffer() string {
 }
 
 func (m Model) renderGoToLineMinibuffer() string {
-	prompt := "Go to line: "
-
-	var inputDisplay strings.Builder
-	for i, char := range m.minibufferInput {
-		if i == m.minibufferCursorPos {
-			inputDisplay.WriteString(minibufferCursorStyle.Render(string(char)))
-		} else {
-			inputDisplay.WriteString(string(char))
-		}
-	}
-
-	if m.minibufferCursorPos >= len(m.minibufferInput) {
-		inputDisplay.WriteString(minibufferCursorStyle.Render(" "))
-	}
-
-	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
-
-	minibufferWidth := m.width - 4
-	currentLen := len(prompt) + len(m.minibufferInput)
-	if currentLen < minibufferWidth {
-		padding := strings.Repeat(" ", minibufferWidth-currentLen)
-		content += padding
-	}
-
-	return minibufferStyle.Width(m.width - 2).Render(content)
+	return m.renderInputMinibuffer("Go to line: ")
 }
 
 func (m Model) renderFindMinibuffer() string {
-	prompt := "Find: "
+	return m.renderInputMinibuffer("Find: ")
+}
 
+// renderInputMinibuffer handles the common rendering logic for input-based minibuffers
+func (m Model) renderInputMinibuffer(prompt string) string {
+	inputDisplay := m.buildInputDisplay()
+	content := m.buildMinibufferContent(prompt, inputDisplay)
+	return minibufferStyle.Width(m.width - 2).Render(content)
+}
+
+// buildInputDisplay creates the input display with cursor positioning
+func (m Model) buildInputDisplay() string {
 	var inputDisplay strings.Builder
 	for i, char := range m.minibufferInput {
 		if i == m.minibufferCursorPos {
@@ -241,7 +254,12 @@ func (m Model) renderFindMinibuffer() string {
 		inputDisplay.WriteString(minibufferCursorStyle.Render(" "))
 	}
 
-	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay.String())
+	return inputDisplay.String()
+}
+
+// buildMinibufferContent creates the complete minibuffer content with padding
+func (m Model) buildMinibufferContent(prompt, inputDisplay string) string {
+	content := minibufferPromptStyle.Render(prompt) + minibufferInputStyle.Render(inputDisplay)
 
 	minibufferWidth := m.width - 4
 	currentLen := len(prompt) + len(m.minibufferInput)
@@ -250,7 +268,7 @@ func (m Model) renderFindMinibuffer() string {
 		content += padding
 	}
 
-	return minibufferStyle.Width(m.width - 2).Render(content)
+	return content
 }
 
 func (m Model) renderFindResultsMinibuffer() string {

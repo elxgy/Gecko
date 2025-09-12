@@ -5,6 +5,8 @@ import "github.com/charmbracelet/lipgloss"
 // Centralized Lipgloss styles. Keeping them in one place simplifies future theming.
 var (
 	// Global UI elements
+	backgroundColor = lipgloss.Color("#6f7cbf")
+
 	statusBarStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#6f7cbf")).
 			Foreground(lipgloss.Color("230")).
@@ -25,8 +27,8 @@ var (
 	lineNumberStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
 			Width(4).
-			Align(lipgloss.Right).
-			Background(lipgloss.NoColor{}) // Remove color block background
+			Align(lipgloss.Right)
+			// No background to prevent color bleeding
 
 	selectedTextStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#4a5568")). // Darker, more subtle highlight with better contrast
@@ -36,8 +38,8 @@ var (
 			Background(lipgloss.Color("#2a2d3a")) // Subtle dark background for current line
 
 	wordHighlightStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#2d3748")). // More subtle, darker background
-				Foreground(lipgloss.Color("#cbd5e0"))  // Soft light foreground for better readability
+				Background(lipgloss.Color("#264f78")). // VSCode-like blue background
+				Foreground(lipgloss.Color("#ffffff"))  // White text for better contrast
 
 	cursorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#282a36")). // White cursor matching VS Code default
