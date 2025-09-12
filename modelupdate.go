@@ -1,144 +1,114 @@
 package main
 
 import (
-	"fmt"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type keyHandler func(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd)
+// KeyHandler defines the signature for key handling functions
+type KeyHandler func(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
-var keyHandlers = map[string]keyHandler{
-	"quit":       handleQuit,
-	"save":       handleSave,
-	"help":       handleHelp,
-	"goto":       handleGoToLine,
-	"find":       handleFind,
-	"findNext":   handleFindNext,
-	"findPrev":   handleFindPrev,
-	"copy":       handleCopy,
-	"cut":        handleCut,
-	"paste":      handlePaste,
-	"undo":       handleUndo,
-	"redo":       handleRedo,
-	"selectAll":  handleSelectAll,
-	"shiftLeft":  handleShiftLeft,
-	"shiftRight": handleShiftRight,
-	"shiftUp":    handleShiftUp,
-	"shiftDown":  handleShiftDown,
-	"altLeft":    handleAltLeft,
-	"altRight":   handleAltRight,
+// KeyMapping represents a key binding and its associated handler
+type KeyMapping struct {
+	Binding key.Binding
+	Handler KeyHandler
 }
 
+// keyMappings provides a more efficient lookup for key handlers
+var keyMappings = []KeyMapping{
+	{keys.Quit, handleQuit},
+	{keys.Save, handleSave},
+	{keys.Help, handleHelp},
+	{keys.GoToLine, handleGoToLine},
+	{keys.Find, handleFind},
+	{keys.FindNext, handleFindNext},
+	{keys.FindPrev, handleFindPrev},
+	{keys.Copy, handleCopy},
+	{keys.Cut, handleCut},
+	{keys.Paste, handlePaste},
+	{keys.Undo, handleUndo},
+	{keys.Redo, handleRedo},
+	{keys.SelectAll, handleSelectAll},
+	{keys.ShiftLeft, handleShiftLeft},
+	{keys.ShiftRight, handleShiftRight},
+	{keys.ShiftUp, handleShiftUp},
+	{keys.ShiftDown, handleShiftDown},
+	{keys.AltLeft, handleAltLeft},
+	{keys.AltRight, handleAltRight},
+}
+
+// Update handles all incoming messages and updates the model state
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.recalculateLayout()
-		m.postMovementUpdate()
-		return m, nil
-
+		return m.handleWindowResize(msg)
 	case tea.KeyMsg:
-		if m.minibufferType != MinibufferNone {
-			return m.handleMinibufferInput(msg)
-		}
-
-		if handler := matchKeyHandler(msg); handler != nil {
-			return handler(m, msg)
-		}
-
-		return handleSpecialKeys(m, msg)
+		return m.handleKeyMessage(msg)
 	case blinkMsg:
-		m.cursorVisible = !m.cursorVisible
-		return m, blinkTick()
+		return m.handleCursorBlink()
 	}
-
 	return m, nil
 }
 
-func matchKeyHandler(msg tea.KeyMsg) keyHandler {
-	if key.Matches(msg, keys.Quit) {
-		return keyHandlers["quit"]
-	}
-	if key.Matches(msg, keys.Save) {
-		return keyHandlers["save"]
-	}
-	if key.Matches(msg, keys.Help) {
-		return keyHandlers["help"]
-	}
-	if key.Matches(msg, keys.GoToLine) {
-		return keyHandlers["goto"]
-	}
-	if key.Matches(msg, keys.Find) {
-		return keyHandlers["find"]
-	}
-	if key.Matches(msg, keys.FindNext) {
-		return keyHandlers["findNext"]
-	}
-	if key.Matches(msg, keys.FindPrev) {
-		return keyHandlers["findPrev"]
-	}
-	if key.Matches(msg, keys.Copy) {
-		return keyHandlers["copy"]
-	}
-	if key.Matches(msg, keys.Cut) {
-		return keyHandlers["cut"]
-	}
-	if key.Matches(msg, keys.Paste) {
-		return keyHandlers["paste"]
-	}
-	if key.Matches(msg, keys.Undo) {
-		return keyHandlers["undo"]
-	}
-	if key.Matches(msg, keys.Redo) {
-		return keyHandlers["redo"]
-	}
-	if key.Matches(msg, keys.SelectAll) {
-		return keyHandlers["selectAll"]
-	}
-	if key.Matches(msg, keys.ShiftLeft) {
-		return keyHandlers["shiftLeft"]
-	}
-	if key.Matches(msg, keys.ShiftRight) {
-		return keyHandlers["shiftRight"]
-	}
-	if key.Matches(msg, keys.ShiftUp) {
-		return keyHandlers["shiftUp"]
-	}
-	if key.Matches(msg, keys.ShiftDown) {
-		return keyHandlers["shiftDown"]
-	}
-	if key.Matches(msg, keys.AltLeft) {
-		return keyHandlers["altLeft"]
-	}
-	if key.Matches(msg, keys.AltRight) {
-		return keyHandlers["altRight"]
+// handleWindowResize processes window resize events
+func (m Model) handleWindowResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	m.width = msg.Width
+	m.height = msg.Height
+	m.recalculateLayout()
+	m.postMovementUpdate()
+	return m, nil
+}
+
+// handleKeyMessage processes keyboard input
+func (m Model) handleKeyMessage(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.minibufferType != MinibufferNone {
+		return m.handleMinibufferInput(msg)
 	}
 
+	if handler := findKeyHandler(msg); handler != nil {
+		return handler(m, msg)
+	}
+
+	return m.handleSpecialKeys(msg)
+}
+
+// handleCursorBlink toggles cursor visibility
+func (m Model) handleCursorBlink() (tea.Model, tea.Cmd) {
+	m.cursorVisible = !m.cursorVisible
+	return m, blinkTick()
+}
+
+// findKeyHandler efficiently finds the appropriate handler for a key message
+func findKeyHandler(msg tea.KeyMsg) KeyHandler {
+	for _, mapping := range keyMappings {
+		if key.Matches(msg, mapping.Binding) {
+			return mapping.Handler
+		}
+	}
 	return nil
 }
 
-func handleSpecialKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyCtrlLeft {
+// handleSpecialKeys processes special key combinations and navigation keys
+func (m Model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlLeft:
 		m.textBuffer.MoveToWordBoundary(false, false)
 		m.postMovementUpdate()
 		return m, nil
-	}
-	if msg.Type == tea.KeyCtrlRight {
+	case tea.KeyCtrlRight:
 		m.textBuffer.MoveToWordBoundary(true, false)
 		m.postMovementUpdate()
 		return m, nil
+	default:
+		return m.handleNavigationKeys(msg)
 	}
-
-	return handleArrowKeys(m, msg)
 }
 
-func handleArrowKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// handleNavigationKeys processes arrow keys and other navigation inputs
+func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var err error
 	switch msg.Type {
 	case tea.KeyLeft:
@@ -149,38 +119,45 @@ func handleArrowKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		err = m.textBuffer.MoveCursorDelta(-1, 0, false)
 	case tea.KeyDown:
 		err = m.textBuffer.MoveCursorDelta(1, 0, false)
+	case tea.KeyHome:
+		return m.handleHomeKey()
+	case tea.KeyEnd:
+		return m.handleEndKey()
+	case tea.KeyPgUp, tea.KeyPgDown:
+		return m.handlePageKeys(msg)
 	default:
-		return handleHomeEndKeys(m, msg)
+		return m.handleTextInput(msg)
 	}
 
 	if err != nil {
-		// Silently handle errors to maintain UI responsiveness
-		return m, nil
+		return m, nil // Silently handle errors to maintain UI responsiveness
 	}
 
 	m.postMovementUpdate()
 	return m, nil
 }
 
-func handleHomeEndKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyHome:
-		cursor := m.textBuffer.GetCursor()
-		m.textBuffer.SetCursor(Position{Line: cursor.Line, Column: 0})
-	case tea.KeyEnd:
-		cursor := m.textBuffer.GetCursor()
-		lines := m.textBuffer.GetLines()
-		if cursor.Line < len(lines) {
-			m.textBuffer.SetCursor(Position{Line: cursor.Line, Column: len(lines[cursor.Line])})
-		}
-	default:
-		return handlePageKeys(m, msg)
+// handleHomeKey moves cursor to beginning of current line
+func (m Model) handleHomeKey() (tea.Model, tea.Cmd) {
+	cursor := m.textBuffer.GetCursor()
+	m.textBuffer.SetCursor(Position{Line: cursor.Line, Column: 0})
+	m.postMovementUpdate()
+	return m, nil
+}
+
+// handleEndKey moves cursor to end of current line
+func (m Model) handleEndKey() (tea.Model, tea.Cmd) {
+	cursor := m.textBuffer.GetCursor()
+	lines := m.textBuffer.GetLines()
+	if cursor.Line < len(lines) {
+		m.textBuffer.SetCursor(Position{Line: cursor.Line, Column: len(lines[cursor.Line])})
 	}
 	m.postMovementUpdate()
 	return m, nil
 }
 
-func handlePageKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// handlePageKeys processes page up/down navigation
+func (m Model) handlePageKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	visible := m.getVisibleLines()
 	var err error
 	switch msg.Type {
@@ -188,13 +165,10 @@ func handlePageKeys(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		err = m.textBuffer.MoveCursorDelta(-visible, 0, false)
 	case tea.KeyPgDown:
 		err = m.textBuffer.MoveCursorDelta(visible, 0, false)
-	default:
-		return handleTextModification(m, msg)
 	}
 
 	if err != nil {
-		// Silently handle errors to maintain UI responsiveness
-		return m, nil
+		return m, nil // Silently handle errors to maintain UI responsiveness
 	}
 
 	m.postMovementUpdate()
@@ -219,45 +193,78 @@ func (m *Model) recalculateLayout() {
 	// and getMinibufferHeight() for proper layout calculation
 }
 
-func handleTextModification(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	var err error
+// handleTextInput processes text modification keys
+func (m Model) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var text string
+	var shouldInsert bool
+
 	switch msg.Type {
 	case tea.KeyEnter:
-		err = m.textBuffer.InsertText("\n")
-	case tea.KeyBackspace:
-		err = m.textBuffer.DeleteChar(true)
-	case tea.KeyDelete:
-		err = m.textBuffer.DeleteChar(false)
+		text, shouldInsert = "\n", true
 	case tea.KeyTab:
-		err = m.textBuffer.InsertText("\t")
+		text, shouldInsert = "\t", true
 	case tea.KeySpace:
-		err = m.textBuffer.InsertText(" ")
+		text, shouldInsert = " ", true
+	case tea.KeyBackspace:
+		return m.handleBackspace()
+	case tea.KeyDelete:
+		return m.handleDelete()
 	case tea.KeyRunes:
-		if len(msg.Runes) > 0 {
-			var b strings.Builder
-			for _, r := range msg.Runes {
-				if unicode.IsPrint(r) && r != '\u0000' {
-					b.WriteRune(r)
-				}
-			}
-			if b.Len() > 0 {
-				err = m.textBuffer.InsertText(b.String())
-			}
-		}
+		text, shouldInsert = m.buildPrintableText(msg.Runes)
 	default:
 		return m, nil
 	}
 
-	// Handle any errors from TextBuffer operations
-	if err != nil {
-		// For now, we'll silently ignore errors to maintain UI responsiveness
-		// In a production system, you might want to log these or show user feedback
-		return m, nil
+	if shouldInsert && text != "" {
+		return m.insertText(text)
+	}
+	return m, nil
+}
+
+// buildPrintableText creates a string from printable runes
+func (m Model) buildPrintableText(runes []rune) (string, bool) {
+	if len(runes) == 0 {
+		return "", false
 	}
 
-	// Invalidate syntax highlighting cache since content changed
-	m.invalidateHighlightCache()
+	var b strings.Builder
+	for _, r := range runes {
+		if unicode.IsPrint(r) && r != '\u0000' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), b.Len() > 0
+}
 
+// insertText inserts text and updates the model state
+func (m Model) insertText(text string) (tea.Model, tea.Cmd) {
+	if err := m.textBuffer.InsertText(text); err != nil {
+		return m, nil // Silently handle errors to maintain UI responsiveness
+	}
+
+	m.invalidateHighlightCache()
+	m.updateModified()
+	m.postMovementUpdate()
+	return m, nil
+}
+
+// handleBackspace processes backspace key
+func (m Model) handleBackspace() (tea.Model, tea.Cmd) {
+	if err := m.textBuffer.DeleteChar(true); err != nil {
+		return m, nil
+	}
+	m.invalidateHighlightCache()
+	m.updateModified()
+	m.postMovementUpdate()
+	return m, nil
+}
+
+// handleDelete processes delete key
+func (m Model) handleDelete() (tea.Model, tea.Cmd) {
+	if err := m.textBuffer.DeleteChar(false); err != nil {
+		return m, nil
+	}
+	m.invalidateHighlightCache()
 	m.updateModified()
 	m.postMovementUpdate()
 	return m, nil
@@ -331,58 +338,49 @@ func (m *Model) updateWordBounds() {
 	}
 }
 
-func handleShiftLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if err := m.textBuffer.MoveCursorDelta(0, -1, true); err != nil {
+// handleShiftLeft extends selection leftward
+func handleShiftLeft(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleShiftMovement(0, -1)
+}
+
+// handleShiftRight extends selection rightward
+func handleShiftRight(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleShiftMovement(0, 1)
+}
+
+// handleShiftUp extends selection upward
+func handleShiftUp(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleShiftMovement(-1, 0)
+}
+
+// handleShiftDown extends selection downward
+func handleShiftDown(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleShiftMovement(1, 0)
+}
+
+// handleShiftMovement is a common handler for all shift+arrow key combinations
+func (m Model) handleShiftMovement(lineDelta, columnDelta int) (tea.Model, tea.Cmd) {
+	if err := m.textBuffer.MoveCursorDelta(lineDelta, columnDelta, true); err != nil {
 		return m, nil
 	}
-	m.postMovementUpdate()
-	selText := m.textBuffer.GetSelectedText()
-	m.message = fmt.Sprintf("Selected %d characters", len(selText))
-	m.messageTime = time.Now()
-	return m, nil
-}
-
-func handleShiftRight(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if err := m.textBuffer.MoveCursorDelta(0, 1, true); err != nil {
-		return m, nil
-	}
-	m.postMovementUpdate()
-	selText := m.textBuffer.GetSelectedText()
-	m.message = fmt.Sprintf("Selected %d characters", len(selText))
-	m.messageTime = time.Now()
-	return m, nil
-}
-
-func handleShiftUp(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if err := m.textBuffer.MoveCursorDelta(-1, 0, true); err != nil {
-		return m, nil
-	}
-	m.postMovementUpdate()
-	selText := m.textBuffer.GetSelectedText()
-	m.message = fmt.Sprintf("Selected %d characters", len(selText))
-	m.messageTime = time.Now()
-	return m, nil
-}
-
-func handleShiftDown(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if err := m.textBuffer.MoveCursorDelta(1, 0, true); err != nil {
-		return m, nil
-	}
-	m.postMovementUpdate()
-	selText := m.textBuffer.GetSelectedText()
-	m.message = fmt.Sprintf("Selected %d characters", len(selText))
-	m.messageTime = time.Now()
-	return m, nil
-}
-
-func handleAltLeft(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveToWordBoundary(false, true)
+	
 	m.postMovementUpdate()
 	return m, nil
 }
 
-func handleAltRight(m Model, _ tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.textBuffer.MoveToWordBoundary(true, true)
+// handleAltLeft moves cursor to previous word boundary
+func handleAltLeft(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleWordBoundaryMovement(false)
+}
+
+// handleAltRight moves cursor to next word boundary
+func handleAltRight(m Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleWordBoundaryMovement(true)
+}
+
+// handleWordBoundaryMovement moves cursor to word boundaries
+func (m Model) handleWordBoundaryMovement(forward bool) (tea.Model, tea.Cmd) {
+	m.textBuffer.MoveToWordBoundary(forward, false)
 	m.postMovementUpdate()
 	return m, nil
 }
